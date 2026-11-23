@@ -5,9 +5,9 @@ with heart rate logging you can export to your phone or fitness service.
 
 ## Usage
 
-1. Mark out two lines 20 m, 15 m or 10 m apart.
+1. Mark out two lines 20 m or 15 m apart.
 2. Open **Bleep Test**. **Press the button** to open the menu, pick the **Course**
-   (20m, 15m or 10m; it is remembered), then choose **Start test**, or just tap the
+   (20m or 15m; it is remembered), then choose **Start test**, or just tap the
    screen to start. You get a 5 second countdown (press the button to cancel).
 3. Run to the other line before each cue:
    * **1 buzz**: end of a shuttle, turn and go.
@@ -39,21 +39,17 @@ timeout settings are restored afterwards.
 
 ## Courses and timings
 
-Every course uses the same speeds: level 1 is 8.0 km/h, level 2 is 9.0 km/h, then each
+Both courses use the same speeds: level 1 is 8.0 km/h, level 2 is 9.0 km/h, then each
 level adds 0.5 km/h up to level 21 (18.5 km/h). Each level lasts about a minute, so the
-shorter courses have more shuttles per level:
+15 m course has more shuttles per level:
 
 | Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 20 m | 7 | 8 | 8 | 9 | 9 | 10 | 10 | 11 | 11 | 11 | 12 | 12 | 13 | 13 | 13 | 14 | 14 | 15 | 15 | 16 | 16 |
 | 15 m | 9 | 10 | 11 | 12 | 12 | 13 | 13 | 14 | 14 | 15 | 15 | 16 | 17 | 17 | 18 | 18 | 19 | 19 | 20 | 20 | 21 |
-| 10 m | 14 | 16 | 16 | 18 | 18 | 20 | 20 | 22 | 22 | 22 | 24 | 24 | 26 | 26 | 26 | 28 | 28 | 30 | 30 | 32 | 32 |
 
 * **20 m** is the standard multistage fitness test (Léger / UK bleep test).
 * **15 m** follows the FitnessGram 15 m PACER lap counts.
-* **10 m** has no single standard version, so it doubles the 20 m counts. Every level then
-  lasts exactly as long as in the 20 m test, at the same speed. The extra turns make it
-  harder, so results are not directly comparable with the 20 m test.
 
 Cue times are worked out from the test start time, so they do not drift, even when you
 switch apps.

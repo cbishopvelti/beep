@@ -1,4 +1,4 @@
-// Bleep Test - multistage shuttle run (20m, 15m or 10m) for Bangle.js
+// Bleep Test - multistage shuttle run (20m or 15m) for Bangle.js
 // The test itself runs in the "bleeptest" module (lib.js), which the boot file
 // resumes on every app load, so it carries on if you go back to the clock.
 //
@@ -11,7 +11,7 @@ var SETTINGS = "bleeptest.settings.json";
 var HISTORY = "bleep.json";
 var COUNTDOWN = 5;
 var BTN_MENU = process.env.HWVERSION == 1 ? BTN2 : BTN1;
-var COURSES = [20, 15, 10];
+var COURSES = [20, 15];
 
 var settings = storage.readJSON(SETTINGS, 1) || {};
 if (COURSES.indexOf(settings.m) < 0) settings.m = 20;

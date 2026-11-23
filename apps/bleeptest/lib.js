@@ -14,9 +14,7 @@ var TESTS = {
   // Standard 20m multistage fitness test (Leger / UK bleep test)
   20: [7,8,8,9,9,10,10,11,11,11,12,12,13,13,13,14,14,15,15,16,16],
   // 15m version, FitnessGram 15m PACER lap counts
-  15: [9,10,11,12,12,13,13,14,14,15,15,16,17,17,18,18,19,19,20,20,21],
-  // 10m version: 20m counts doubled, so every level takes exactly as long as in the 20m test
-  10: [14,16,16,18,18,20,20,22,22,22,24,24,26,26,26,28,28,30,30,32,32]
+  15: [9,10,11,12,12,13,13,14,14,15,15,16,17,17,18,18,19,19,20,20,21]
 };
 function speed(l) { return l == 1 ? 8 : 8 + 0.5 * l; } // km/h
 function shuttleTime(m, l) { return m * 3.6 / speed(l); } // seconds

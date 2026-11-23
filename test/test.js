@@ -117,7 +117,7 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   const w = makeWatch(); w.boot(SRC.app);
   const lib = w.ctx.require("bleeptest");
   assert.strictEqual(lib.speed(1), 8); assert.strictEqual(lib.speed(2), 9); assert.strictEqual(lib.speed(21), 18.5);
-  for (const m of [20, 15, 10]) {
+  for (const m of [20, 15]) {
     assert.strictEqual(lib.TESTS[m].length, 21);
     for (let l = 1; l <= 21; l++) {
       const d = lib.TESTS[m][l - 1] * lib.shuttleTime(m, l);
@@ -125,11 +125,10 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
     }
   }
   assert.strictEqual(lib.shuttleTime(15, 1), 6.75); // FitnessGram 15m PACER
-  assert.strictEqual(lib.shuttleTime(10, 1), 4.5);
   assert.strictEqual(JSON.stringify(lib.result(20, lib.position(20, 63.5))), JSON.stringify({ l: 1, s: 7 }));
   assert.strictEqual(lib.vo2max(20, 8, 5), 41.5);
   assert.strictEqual(lib.vo2max(15, 8, 5), 0);
-  console.log("ok level tables (20m, 15m, 10m)");
+  console.log("ok level tables (20m, 15m)");
 }
 
 // --- 20m test: start from ready screen, short press opens menu, stop at 8.5 ---
@@ -217,18 +216,17 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   console.log("ok 15m run with clock widget mid-test, result", hist[0].l + "." + hist[0].s);
 }
 
-// --- 10m test runs to the end without drift ---
+// --- full 15m test runs to the end without drift ---
 {
   const w = makeWatch(); w.boot(SRC.app);
-  w.press(200); w.menu()["Course"].onchange(2); w.menu()["Start test"](); w.advance(5000);
+  w.press(200); w.menu()["Course"].onchange(1); w.menu()["Start test"](); w.advance(5000);
   const lib = w.ctx.require("bleeptest");
-  const total = levelTime(lib, 10, 21);
-  assert(Math.abs(total - levelTime(lib, 20, 21)) < 1e-6, "10m levels take as long as 20m levels");
+  const total = levelTime(lib, 15, 21);
   w.advance(total * 1000 + 100);
   assert.strictEqual(w.ev("view"), "result");
   const hist = JSON.parse(w.files["bleep.json"]);
-  assert.deepStrictEqual([hist[0].m, hist[0].l, hist[0].s, hist[0].d], [10, 21, 32, lib.TESTS[10].reduce((a, b) => a + b) * 10]);
-  console.log("ok 10m full test completes in", (total / 60).toFixed(1), "min");
+  assert.deepStrictEqual([hist[0].m, hist[0].l, hist[0].s, hist[0].d], [15, 21, 21, lib.TESTS[15].reduce((a, b) => a + b) * 15]);
+  console.log("ok 15m full test completes in", (total / 60).toFixed(1), "min");
 }
 
 // --- countdown can be cancelled, test resumes if the clock was set while away ---

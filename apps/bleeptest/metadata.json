@@ -3,7 +3,7 @@
   "name": "Bleep Test",
   "shortName": "Bleep Test",
   "version": "0.02",
-  "description": "Multistage fitness (bleep / beep) test on a 20m, 15m or 10m course, with vibration cues, a clock widget while it runs, and heart rate logging you can export as TCX or CSV.",
+  "description": "Multistage fitness (bleep / beep) test on a 20m or 15m course, with vibration cues, a clock widget while it runs, and heart rate logging you can export as TCX or CSV.",
   "icon": "app.png",
   "type": "app",
   "tags": "health,sport,fitness,hrm,widget",
