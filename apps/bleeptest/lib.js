@@ -169,7 +169,7 @@ exports.resume = function () {
 };
 
 // Stop the test. at: seconds since start when the runner dropped out (default now).
-exports.stop = stop;
+// (Espruino doesn't hoist functions in modules, so exports go after the definition.)
 function stop(completed, at) {
   if (!st) return;
   halt();
@@ -196,6 +196,7 @@ function stop(completed, at) {
   emit("done", res);
   return res;
 }
+exports.stop = stop;
 
 // Abandon the test: no result, and its HR log is deleted
 exports.cancel = function () {

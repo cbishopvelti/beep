@@ -51,5 +51,16 @@
       "wildcard": "bleep.*.csv",
       "storageFile": true
     }
+  ],
+  "screenshots": [
+    {
+      "url": "screenshot-ready.png"
+    },
+    {
+      "url": "screenshot-running.png"
+    },
+    {
+      "url": "screenshot-widget.png"
+    }
   ]
 }

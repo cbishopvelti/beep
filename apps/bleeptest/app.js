@@ -62,9 +62,13 @@ function setScreen(name, opts) {
   E.showMenu();
   clearTimers();
   view = name;
+  var down;
   var w = setWatch(function (e) {
-    if (e.time - e.lastTime < 1) (opts.btn || showMenu)();
-  }, BTN_MENU, { edge: "falling", repeat: true, debounce: 25 });
+    if (e.state) { down = e.time; return; }
+    // released: only a short press counts (a long hold goes to the clock)
+    if (down !== undefined && e.time - down < 1) (opts.btn || showMenu)();
+    down = undefined;
+  }, BTN_MENU, { edge: "both", repeat: true, debounce: 25 });
   Bangle.setUI({
     mode: "custom",
     touch: opts.touch,
@@ -140,7 +144,7 @@ function drawRun() {
   g.setFont("6x8").setFontAlign(0, -1).drawString(s.m + "m  " + s.speed.toFixed(1) + " km/h  " + Math.max(0, s.left).toFixed(1) + "s", cx, by + 18);
   heart(R.x + 14, by + 42, 8);
   g.setFont("Vector", 26).setFontAlign(-1, -1).drawString(s.bpm > 0 ? Math.round(s.bpm) : "--", R.x + 28, by + 32);
-  g.setFontAlign(1, -1).drawString(s.dist + "m", R.x2 - 4, by + 32);
+  g.setFont("Vector", s.dist >= 1000 ? 20 : 26).setFontAlign(1, -1).drawString(s.dist + "m", R.x2 - 4, by + 34);
   g.setFont("6x8").setFontAlign(-1, 1).drawString(fmtTime(s.t), R.x + 4, R.y2 - 2);
   g.setFontAlign(1, 1).drawString("BTN: menu", R.x2 - 4, R.y2 - 2);
 }
@@ -199,7 +203,7 @@ function showResult(res, back) {
   g.setFont("Vector", 40).drawString(res.l + "." + res.s, cx, R.y + 14);
   g.setFont("6x8").drawString("level . shuttle  (" + (res.m || 20) + "m)", cx, R.y + 56);
   g.setFont("6x8", 2);
-  if (res.vo2) g.drawString("VO2max ~" + res.vo2, cx, R.y + 70);
+  if (res.vo2) g.drawString("VO2max " + res.vo2, cx, R.y + 70);
   g.drawString(res.d + "m  " + fmtTime(res.dur), cx, R.y + 90);
   g.drawString("HR " + (res.avg || "--") + " / " + (res.max || "--"), cx, R.y + 110);
   g.setFont("6x8").drawString("avg / max bpm", cx, R.y + 128);

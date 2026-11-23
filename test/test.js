@@ -93,7 +93,8 @@ function makeCtx(w) {
       w.ctx.Bangle.emit("__noop");
       const t1 = (START + w.now) / 1000;
       w.advance(ms);
-      watches.slice().forEach(x => { if (x.o.edge === "falling") x.fn({ time: (START + w.now) / 1000, lastTime: t1 }); });
+      watches.slice().forEach(x => x.fn({ state: true, time: t1 }));
+      watches.slice().forEach(x => x.fn({ state: false, time: (START + w.now) / 1000, lastTime: t1 }));
     },
     __hrm: bpm => ctx.Bangle.emit("HRM", { bpm, confidence: 80 }),
   };
@@ -237,6 +238,14 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   assert(!w.ev("bleepTest.active()"));
   console.log("ok countdown cancel");
 }
+// --- a long hold does not open the menu ---
+{
+  const w = makeWatch(); w.boot(SRC.app);
+  w.press(1500);
+  assert.strictEqual(w.ev("view"), "ready");
+  console.log("ok long hold ignored by the app");
+}
+
 // --- cancel during a test: no result, log deleted, widget hidden ---
 (async () => {
   const w = makeWatch(); w.boot(SRC.app);
