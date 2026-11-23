@@ -44,8 +44,8 @@ while IFS="$(printf '\t')" read -r num sha url branch; do
   version="$BASE_VERSION.$MAIN_BUILD.$ahead"
   # A fresh worktree: the PR's own metadata.json says which files to take.
   git worktree add -q --detach "$WORK/pr-$num" "$sha"
-  BLEEP_SRC="$WORK/pr-$num" BLEEP_VERSION="$version" \
-    BLEEP_PR="$num" BLEEP_PR_URL="$url" BLEEP_PR_BRANCH="$branch" \
+  BEEP_SRC="$WORK/pr-$num" BEEP_VERSION="$version" \
+    BEEP_PR="$num" BEEP_PR_URL="$url" BEEP_PR_BRANCH="$branch" \
     LOADER_FROM="$OUT" sh "$REPO_DIR/tools/build-loader.sh" "$WORK/site-$num" | tail -1
   mv "$WORK/site-$num" "$OUT/pr-$num"
   git worktree remove --force "$WORK/pr-$num"

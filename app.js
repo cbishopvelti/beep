@@ -1,14 +1,14 @@
-// Bleep Test - multistage shuttle run (20m or 15m) for Bangle.js 2
-// The test itself runs in the "bleeptest" module (lib.js), which the boot file
+// Beep Test - multistage shuttle run (20m or 15m) for Bangle.js 2
+// The test itself runs in the "beeptest" module (lib.js), which the boot file
 // resumes on every app load, so it carries on if you go back to the clock.
 //
 // Controls: short button press opens the menu, long press goes to the clock
 // (the test keeps running and the widget shows it), tap the screen to start.
 
 var storage = require("Storage");
-var bt = global.bleepTest = require("bleeptest");
-var SETTINGS = "bleeptest.settings.json";
-var HISTORY = "bleeptest.json";
+var bt = global.beepTest = require("beeptest");
+var SETTINGS = "beeptest.settings.json";
+var HISTORY = "beeptest.json";
 var COUNTDOWN = 5;
 var COURSES = [20, 15];
 
@@ -79,11 +79,11 @@ function setScreen(name, opts) {
 // ---------- ready ----------
 function showReady() {
   if (bt.active()) return showRun();
-  Bangle.setHRMPower(0, "bleeptest.app"); // in case a countdown was cancelled
+  Bangle.setHRMPower(0, "beeptest.app"); // in case a countdown was cancelled
   restoreAwake();
   setScreen("ready", { touch: startCountdown });
   var R = Bangle.appRect, cx = R.x + R.w / 2;
-  g.setFontAlign(0, -1).setFont("6x8", 2).drawString("Bleep Test", cx, R.y + 4);
+  g.setFontAlign(0, -1).setFont("6x8", 2).drawString("Beep Test", cx, R.y + 4);
   g.setFont("Vector", 40).drawString(settings.m + "m", cx, R.y + 26);
   g.setFont("6x8", 2).drawString("Tap to start", cx, R.y + 76);
   var last = (storage.readJSON(HISTORY, 1) || [])[0];
@@ -96,7 +96,7 @@ function startCountdown() {
   setScreen("countdown", { btn: showReady });
   keepAwake();
   // warm the HRM up so there is a reading at the start
-  Bangle.setHRMPower(1, "bleeptest.app");
+  Bangle.setHRMPower(1, "beeptest.app");
   var n = COUNTDOWN;
   function tick() {
     var R = Bangle.appRect, cx = R.x + R.w / 2;
@@ -106,7 +106,7 @@ function startCountdown() {
     g.setFont("6x8").drawString("BTN: cancel", cx, R.y2 - 8);
     if (n <= 0) {
       bt.start(settings.m, { gps: settings.gps });
-      Bangle.setHRMPower(0, "bleeptest.app");
+      Bangle.setHRMPower(0, "beeptest.app");
       showRun();
       return;
     }
@@ -147,7 +147,7 @@ function drawRun() {
   if (s.gps) g.setFontAlign(1, 1).drawString("GPS " + (isNaN(s.gpsSpeed) ? "--" : s.gpsSpeed.toFixed(1)) + " km/h", R.x2 - 4, R.y2 - 2);
 }
 
-Bangle.on("bleeptest", function (e) {
+Bangle.on("beeptest", function (e) {
   if (e.type == "done" && (view == "run" || view == "menu")) {
     restoreAwake();
     showResult(e.data, showReady);
@@ -178,7 +178,7 @@ function showMenu() {
     };
   } else {
     m = {
-      "": { title: "Bleep Test", back: showReady },
+      "": { title: "Beep Test", back: showReady },
       "Start test": startCountdown,
       "Course": {
         value: COURSES.indexOf(settings.m),

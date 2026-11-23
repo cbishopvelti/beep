@@ -6,19 +6,19 @@ const { BT, timeAt, startAgo, spyMenu, menuItems, spyDraw, captureButton, press,
 
 /* Open the app with the menu and button spies in place */
 async function open(h) {
-  await h.load("bleeptest.app.js");
+  await h.load("beeptest.app.js");
   spyMenu(h);
   captureButton(h);
   h.tx("showReady()"); // set the screen up again so its button watch is captured
 }
 
 test("start screen: course and Tap to start, no button hints", async h => {
-  await h.load("bleeptest.app.js");
+  await h.load("beeptest.app.js");
   spyDraw(h);
   h.tx("showReady()");
   assert.eq(h.eval("view"), "ready");
   const drawn = h.eval("DRAWN");
-  for (const s of ["Bleep Test", "20m", "Tap to start"]) assert(drawn.includes(s), `drew ${s}: ${drawn}`);
+  for (const s of ["Beep Test", "20m", "Tap to start"]) assert(drawn.includes(s), `drew ${s}: ${drawn}`);
   assert(!drawn.some(s => /BTN/.test(s)), "no BTN hint: " + drawn);
 });
 
@@ -53,15 +53,15 @@ test("course and GPS choices are remembered and used", async h => {
   await open(h);
   press(h, 150);
   h.tx('MENU.Course.onchange(1);MENU["GPS speed"].onchange(true)');
-  assert.eq(h.eval('require("Storage").readJSON("bleeptest.settings.json")'), { m: 15, gps: true });
-  await h.load("bleeptest.app.js");
+  assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { m: 15, gps: true });
+  await h.load("beeptest.app.js");
   spyMenu(h);
   h.tx("showMenu()");
   assert.eq(h.eval("MENU.Course.format(MENU.Course.value)"), "15m");
   h.tx('MENU["Start test"]()');
   await h.wait(5100);
   assert.eq(h.eval(`[${BT}.status().m,${BT}.status().gps]`), [15, true]);
-  assert.eq(h.eval("GPS_USERS"), { bleeptest: 1 });
+  assert.eq(h.eval("GPS_USERS"), { beeptest: 1 });
 });
 
 test("button during the countdown cancels it", async h => {
@@ -93,7 +93,7 @@ test("Stop & save counts from the button press, not the menu choice", async h =>
   await h.wait(20000); // more than a shuttle later
   h.tx('MENU["Stop & save"]()');
   assert.eq(h.eval("view"), "result");
-  const r = h.eval('require("Storage").readJSON("bleeptest.json")[0]');
+  const r = h.eval('require("Storage").readJSON("beeptest.json")[0]');
   assert.eq([r.l, r.s], [5, 3]);
 });
 
@@ -107,12 +107,12 @@ test("Cancel test asks first, then discards the run", async h => {
   assert(/Cancel/.test(h.eval("PROMPT")), "asked: " + h.eval("PROMPT"));
   assert.eq(h.eval("view"), "ready");
   assert(!h.eval(`${BT}.active()`));
-  assert.eq(h.eval('require("Storage").readJSON("bleeptest.json",1)||[]'), []);
+  assert.eq(h.eval('require("Storage").readJSON("beeptest.json",1)||[]'), []);
 });
 
 test("running screen: level, shuttle, HR, distance; GPS only when on", async h => {
   startAgo(h, 20, timeAt(h, 20, 7, 4) + 2);
-  await h.load("bleeptest.app.js");
+  await h.load("beeptest.app.js");
   h.tx('Bangle.emit("HRM",{bpm:164,confidence:90})');
   spyDraw(h);
   await h.wait(300);
@@ -122,7 +122,7 @@ test("running screen: level, shuttle, HR, distance; GPS only when on", async h =
   h.tx(`${BT}.cancel()`);
   h.tx(`${BT}.start(20,{gps:true})`);
   h.tx('Bangle.emit("GPS",{fix:1,speed:8.4,lat:51.5,lon:-0.1})');
-  await h.load("bleeptest.app.js");
+  await h.load("beeptest.app.js");
   h.tx('Bangle.emit("GPS",{fix:1,speed:8.4,lat:51.5,lon:-0.1})');
   spyDraw(h);
   await h.wait(300);

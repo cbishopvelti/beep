@@ -1,10 +1,10 @@
-/* The test engine (lib.js, module "bleeptest"): timings, cues, results,
+/* The test engine (lib.js, module "beeptest"): timings, cues, results,
    resuming after an app change, cancel, HR and GPS logging.
    Run: node tests/run.js tests/engine.test.js -v */
 const { test, assert } = require("./harness");
 const { BT, timeAt, startAgo, spyBuzz, readFile } = require("./helpers");
 
-const hist = h => h.eval('require("Storage").readJSON("bleeptest.json",1)||[]');
+const hist = h => h.eval('require("Storage").readJSON("beeptest.json",1)||[]');
 
 test("tables: 8.0 then 9.0 km/h, +0.5 a level, about a minute each", async h => {
   assert.eq(h.eval(`[${BT}.speed(1),${BT}.speed(2),${BT}.speed(3),${BT}.speed(21)]`), [8, 9, 9.5, 18.5]);
@@ -22,10 +22,10 @@ test("start: state saved, HR log started, HRM on, 3 buzzes", async h => {
   spyBuzz(h);
   h.tx(`${BT}.start(20)`);
   await h.wait(1000);
-  const st = h.eval('require("Storage").readJSON("bleeptest.state.json",1)');
+  const st = h.eval('require("Storage").readJSON("beeptest.state.json",1)');
   assert.eq(st.m, 20);
-  assert(/^bleeptest\.\d+\.csv$/.test(st.file), st.file);
-  assert.eq(h.eval("HRM_USERS"), { bleeptest: 1 });
+  assert(/^beeptest\.\d+\.csv$/.test(st.file), st.file);
+  assert.eq(h.eval("HRM_USERS"), { beeptest: 1 });
   assert.eq(h.eval("GPS_USERS"), {}, "no GPS unless asked");
   assert.eq(h.eval("BUZZ.length"), 3);
   const log = readFile(h, st.file).split("\n");
@@ -57,7 +57,7 @@ test("stop: result is the last completed shuttle, saved with HR stats", async h 
   assert.eq([res.avg, res.max], [160, 170]);
   assert(!("vo2" in res), "no VO2max");
   assert.eq(hist(h)[0].f, res.f);
-  assert.eq(h.eval('require("Storage").read("bleeptest.state.json")===undefined'), true);
+  assert.eq(h.eval('require("Storage").read("beeptest.state.json")===undefined'), true);
   assert.eq(h.eval("HRM_USERS"), {}, "HRM off");
   assert(/\nend,[\d.]+,8,5,1320,170,160\n$/.test(readFile(h, res.f)), "log ends with the result");
 });
@@ -90,13 +90,13 @@ test("keeps running after load(): cues, HR stats and log carry on", async h => {
   h.tx(`Bangle.emit("HRM",{bpm:120,confidence:90})`);
   await h.wait(20500);
   await h.load(); // the clock, as after a long press
-  assert(h.eval(`global.bleepTest&&bleepTest.active()`), "resumed by the boot file");
-  assert.eq(h.eval("HRM_USERS"), { bleeptest: 1 });
+  assert(h.eval(`global.beepTest&&beepTest.active()`), "resumed by the boot file");
+  assert.eq(h.eval("HRM_USERS"), { beeptest: 1 });
   spyBuzz(h);
   h.tx(`Bangle.emit("HRM",{bpm:140,confidence:90})`);
   await h.wait(20000);
   assert(h.eval("BUZZ.length") >= 2, "cues at the clock");
-  await h.load("bleeptest.app.js");
+  await h.load("beeptest.app.js");
   const res = h.eval(`${BT}.stop(false)`);
   assert.eq(res.max, 140);
   assert(res.avg > 120 && res.avg < 140, "HR stats from before and after: " + res.avg);
@@ -109,21 +109,21 @@ test("keeps running after load(): cues, HR stats and log carry on", async h => {
 test("a test that ended while nothing ran is closed on the next load", async h => {
   startAgo(h, 20, 10);
   // pretend the watch was off: the saved start is long ago
-  h.tx('(function(s){var st=s.readJSON("bleeptest.state.json");st.start-=2000;s.writeJSON("bleeptest.state.json",st)})(require("Storage"));E.removeAllListeners("kill")');
+  h.tx('(function(s){var st=s.readJSON("beeptest.state.json");st.start-=2000;s.writeJSON("beeptest.state.json",st)})(require("Storage"));E.removeAllListeners("kill")');
   await h.load();
-  assert(!h.eval(`global.bleepTest&&bleepTest.active()`));
+  assert(!h.eval(`global.beepTest&&beepTest.active()`));
   assert.eq([hist(h)[0].l, hist(h)[0].s], [21, 16]);
 });
 
 test("cancel: no result, log deleted, sensors off", async h => {
   h.tx(`${BT}.start(20,{gps:true})`);
   await h.wait(5000);
-  const file = h.eval('require("Storage").readJSON("bleeptest.state.json").file');
+  const file = h.eval('require("Storage").readJSON("beeptest.state.json").file');
   h.tx(`${BT}.cancel()`);
   assert(!h.eval(`${BT}.active()`));
   assert.eq(hist(h), []);
-  assert.eq(h.eval(`require("Storage").list(/^bleeptest\\.\\d+\\.csv/)`), [], "log erased: " + file);
-  assert.eq(h.eval('require("Storage").read("bleeptest.state.json")===undefined'), true);
+  assert.eq(h.eval(`require("Storage").list(/^beeptest\\.\\d+\\.csv/)`), [], "log erased: " + file);
+  assert.eq(h.eval('require("Storage").read("beeptest.state.json")===undefined'), true);
   assert.eq([h.eval("HRM_USERS"), h.eval("GPS_USERS")], [{}, {}]);
 });
 
@@ -138,7 +138,7 @@ test("level boundary: an exact sample when each level starts", async h => {
 
 test("GPS: logs speed and position, off again after", async h => {
   h.tx(`${BT}.start(20,{gps:true})`);
-  assert.eq(h.eval("GPS_USERS"), { bleeptest: 1 });
+  assert.eq(h.eval("GPS_USERS"), { beeptest: 1 });
   await h.wait(2000);
   h.tx(`Bangle.emit("GPS",{fix:1,speed:8.3,lat:51.5,lon:-0.12})`);
   await h.wait(1000);

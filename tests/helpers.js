@@ -1,6 +1,6 @@
 /* Helpers shared by the emulator tests */
 
-const BT = 'require("bleeptest")';
+const BT = 'require("beeptest")';
 
 /* Seconds from the start of a test on an m metre course to the end of
    shuttle `s` of level `l` (s = 0 is the start of the level) */

@@ -1,10 +1,10 @@
-/* Headless Bangle.js 2 emulator harness for Bleep Test.
+/* Headless Bangle.js 2 emulator harness for Beep Test.
 
    Needs EspruinoWebIDE and BangleApps checked out side by side in
    $BANGLE_DIR (default /opt/bangle); see tests/README.md.
 
    const h = await require("./harness").create();
-   await h.reset();            // factory reset + install Bleep Test + boot
+   await h.reset();            // factory reset + install Beep Test + boot
    h.eval("1+1")              // -> 2 (JSON round trip from the watch)
    h.tx("code")               // run code, ignore the result
    await h.wait(1500)          // let 1.5 s pass on the watch's (virtual) clock
@@ -32,19 +32,19 @@ function check() {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* When every test starts on the watch's clock: a fixed time, well away from
-   midnight and minute boundaries, so runs are repeatable. BLEEP_TEST_TIME
+   midnight and minute boundaries, so runs are repeatable. BEEP_TEST_TIME
    (anything Date.parse takes, e.g. 2026-06-15T23:59:30Z) runs the suite at
    another time, to try it near midnight say. */
-const START = process.env.BLEEP_TEST_TIME ? Date.parse(process.env.BLEEP_TEST_TIME)
+const START = process.env.BEEP_TEST_TIME ? Date.parse(process.env.BEEP_TEST_TIME)
   : Date.UTC(2026, 5, 15, 10, 0, 0);
-if (isNaN(START)) throw new Error("BLEEP_TEST_TIME: can't read " + process.env.BLEEP_TEST_TIME);
+if (isNaN(START)) throw new Error("BEEP_TEST_TIME: can't read " + process.env.BEEP_TEST_TIME);
 
-/* Files to install besides Bleep Test itself: a test-only boot file.
-   Bleep Test is installed with the same code as the Web IDE installer
+/* Files to install besides Beep Test itself: a test-only boot file.
+   Beep Test is installed with the same code as the Web IDE installer
    (tools/install.js), straight from metadata.json. */
 function extraFiles() {
   // Test-only boot code (runs first): record who asked for GPS and HRM power
-  // in GPS_USERS and HRM_USERS, e.g. GPS_USERS.bleeptest == 1. (The emulator
+  // in GPS_USERS and HRM_USERS, e.g. GPS_USERS.beeptest == 1. (The emulator
   // has no GPS or heart rate sensor: tests emit "GPS" and "HRM" events.)
   const spy = (fn, list) =>
     `(function(){var o=Bangle.${fn};global.${list}={};` +

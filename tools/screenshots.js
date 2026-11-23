@@ -54,7 +54,7 @@ async function main() {
   await h.reset();
   startAgo(h, 20, timeAt(h, 20, 9, 4) + 1);
   h.tx(`${BT}.stop(false)`);
-  await h.load("bleeptest.app.js");
+  await h.load("beeptest.app.js");
   await h.wait(500);
   shot("1-start.png");
 
@@ -69,7 +69,7 @@ async function main() {
   // Running, level 7
   await h.reset();
   startAgo(h, 20, timeAt(h, 20, 7, 7) + 3.5);
-  await h.load("bleeptest.app.js");
+  await h.load("beeptest.app.js");
   hrm(164);
   await h.wait(600);
   shot("3-running.png");
@@ -89,7 +89,7 @@ async function main() {
   shot("5-clock-widget.png");
 
   // The result
-  await h.load("bleeptest.app.js");
+  await h.load("beeptest.app.js");
   for (const bpm of [150, 160, 171]) { hrm(bpm); await h.wait(1000); }
   h.tx(`showResult(${BT}.stop(false),showReady)`);
   await h.wait(500);

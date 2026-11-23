@@ -1,4 +1,4 @@
-/* The files that make up the app in a BangleApps checkout (apps/bleeptest/):
+/* The files that make up the app in a BangleApps checkout (apps/beeptest/):
    metadata.json, ChangeLog, the icon, README, screenshots, every storage
    file, and the App Loader page (interface.html) with the script it loads. Tests, tools and docs stay in this repository.
 
@@ -14,7 +14,7 @@ function list(src) {
   for (const s of m.storage) if (s.url) files.add(s.url);
   if (m.interface) {
     files.add(m.interface);
-    // local scripts the page loads, e.g. <script src="bleeplog.js">
+    // local scripts the page loads, e.g. <script src="beeplog.js">
     const html = fs.readFileSync(path.join(src, m.interface), "utf8");
     for (const [, f] of html.matchAll(/<script src="([^":/]+)"/g)) files.add(f);
   }

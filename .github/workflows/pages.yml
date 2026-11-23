@@ -1,7 +1,7 @@
 name: Install page
-# Publishes a Bangle.js App Loader with Bleep Test on it to GitHub Pages,
-# so https://cbishopvelti.github.io/bleep/ always installs the latest main,
-# plus a preview loader for every open pull request at .../bleeptest/pr-<N>/.
+# Publishes a Bangle.js App Loader with Beep Test on it to GitHub Pages,
+# so https://cbishopvelti.github.io/beep/ always installs the latest main,
+# plus a preview loader for every open pull request at .../beeptest/pr-<N>/.
 # A Pages deployment replaces the whole site, so every run builds main and
 # all the open previews together.
 # Needs Settings > Pages > Source set to "GitHub Actions".
@@ -47,8 +47,8 @@ jobs:
         with:
           node-version: 22
       - run: sh tools/build-loader.sh _site
-      - name: Check the loader lists Bleep Test
-        run: node -e 'const a=require("./_site/apps.json");if(!a.some(x=>x.id==="bleeptest"))process.exit(1)'
+      - name: Check the loader lists Beep Test
+        run: node -e 'const a=require("./_site/apps.json");if(!a.some(x=>x.id==="beeptest"))process.exit(1)'
       - name: Add previews of open pull requests
         id: previews
         env:
@@ -85,7 +85,7 @@ jobs:
           PAGE_URL: ${{ needs.deploy.outputs.page_url }}
         with:
           script: |
-            const marker = "<!-- bleep-preview -->";
+            const marker = "<!-- beep-preview -->";
             const base = process.env.PAGE_URL.replace(/\/?$/, "/");
             const {owner, repo} = context.repo;
             async function upsert(number, body) {
@@ -100,7 +100,7 @@ jobs:
               const url = base + p.path;
               await upsert(p.number, marker + "\n" +
                 `**Install preview:** ${url}\n\n` +
-                `Open it in Chrome or Edge, press Connect and install Bleep Test ` +
+                `Open it in Chrome or Edge, press Connect and install Beep Test ` +
                 `**${p.version}** (commit ${p.sha.slice(0, 7)}) on the watch. ` +
                 `It updates on every push to this PR and goes away when the PR closes. ` +
                 `To go back, install from the main page: ${base}`);

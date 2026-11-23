@@ -4,13 +4,13 @@ const { BT, timeAt, startAgo, spyDraw } = require("./helpers");
 
 test("no widget when no test is running", async h => {
   await h.load();
-  assert.eq(h.eval("WIDGETS.bleeptest.width"), 0);
+  assert.eq(h.eval("WIDGETS.beeptest.width"), 0);
 });
 
 test("on the clock during a test: level.shuttle and heart rate", async h => {
   startAgo(h, 20, timeAt(h, 20, 6, 2) + 1);
   await h.load();
-  assert.eq(h.eval("WIDGETS.bleeptest.width"), 30);
+  assert.eq(h.eval("WIDGETS.beeptest.width"), 30);
   h.tx('Bangle.emit("HRM",{bpm:152,confidence:90})');
   spyDraw(h);
   await h.wait(1100); // redraws every second
@@ -21,10 +21,10 @@ test("on the clock during a test: level.shuttle and heart rate", async h => {
 test("goes away when the test ends", async h => {
   startAgo(h, 20, 20);
   await h.load();
-  assert.eq(h.eval("WIDGETS.bleeptest.width"), 30);
-  h.tx(`bleepTest.stop(false)`);
-  assert.eq(h.eval("WIDGETS.bleeptest.width"), 0);
+  assert.eq(h.eval("WIDGETS.beeptest.width"), 30);
+  h.tx(`beepTest.stop(false)`);
+  assert.eq(h.eval("WIDGETS.beeptest.width"), 0);
   await h.load();
-  assert.eq(h.eval("WIDGETS.bleeptest.width"), 0);
+  assert.eq(h.eval("WIDGETS.beeptest.width"), 0);
   void BT;
 });

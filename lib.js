@@ -1,17 +1,17 @@
-// Bleep Test engine, stored on the watch as module "bleeptest".
+// Beep Test engine, stored on the watch as module "beeptest".
 // The schedule is a pure function of time since the start, so a test keeps
-// running across app changes: the boot file resumes it from bleeptest.state.json
+// running across app changes: the boot file resumes it from beeptest.state.json
 // whenever any app (e.g. the clock) loads.
 
 var S = require("Storage");
-var STATE = "bleeptest.state.json";
-var HISTORY = "bleeptest.json";
+var STATE = "beeptest.state.json";
+var HISTORY = "beeptest.json";
 
 /*TABLES_START*/
 // Speeds are the same for every course length: 8.0, 9.0, then +0.5 km/h per level.
 // Each level lasts about a minute, so shorter courses need more shuttles per level.
 var TESTS = {
-  // Standard 20m multistage fitness test (Leger / UK bleep test)
+  // Standard 20m multistage fitness test (Leger / UK beep test)
   20: [7,8,8,9,9,10,10,11,11,11,12,12,13,13,13,14,14,15,15,16,16],
   // 15m version, FitnessGram 15m PACER lap counts
   15: [9,10,11,12,12,13,13,14,14,15,15,16,17,17,18,18,19,19,20,20,21]
@@ -95,10 +95,10 @@ function logTick() {
   writeSample(t, position(st.m, t));
 }
 
-function emit(type, data) { Bangle.emit("bleeptest", { type: type, data: data }); }
+function emit(type, data) { Bangle.emit("beeptest", { type: type, data: data }); }
 
 function updateWidget() {
-  if (global.WIDGETS && WIDGETS.bleeptest) WIDGETS.bleeptest.update();
+  if (global.WIDGETS && WIDGETS.beeptest) WIDGETS.beeptest.update();
 }
 
 // Schedule the next beep. Called on start, on resume and after each beep.
@@ -124,10 +124,10 @@ function schedule() {
 
 function run() {
   Bangle.on("HRM", onHRM);
-  Bangle.setHRMPower(1, "bleeptest");
+  Bangle.setHRMPower(1, "beeptest");
   if (st.gps) {
     Bangle.on("GPS", onGPS);
-    Bangle.setGPSPower(1, "bleeptest");
+    Bangle.setGPSPower(1, "beeptest");
   }
   log = S.open(st.file, "a");
   schedule();
@@ -140,10 +140,10 @@ function halt() {
   if (tLog) clearInterval(tLog);
   tBeep = tLog = undefined;
   Bangle.removeListener("HRM", onHRM);
-  Bangle.setHRMPower(0, "bleeptest");
+  Bangle.setHRMPower(0, "beeptest");
   if (st && st.gps) {
     Bangle.removeListener("GPS", onGPS);
-    Bangle.setGPSPower(0, "bleeptest");
+    Bangle.setGPSPower(0, "beeptest");
   }
 }
 
@@ -155,7 +155,7 @@ exports.start = function (m, opts) {
   opts = opts || {};
   m = TESTS[m] ? m : 20;
   var start = opts.start ? opts.start / 1000 : getTime();
-  st = { start: start, m: m, file: "bleeptest." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0, gps: !!opts.gps };
+  st = { start: start, m: m, file: "beeptest." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0, gps: !!opts.gps };
   S.writeJSON(STATE, st);
   log = S.open(st.file, "w");
   log.write("start," + Math.round(start * 1000) + "," + new Date().getTimezoneOffset() + "," + m + "\n");
