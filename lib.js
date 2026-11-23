@@ -53,6 +53,10 @@ var hr = { bpm: 0, conf: 0 };
 var gps = { speed: NaN, lat: NaN, lon: NaN }; // speed km/h, NaN = no fix
 var tBeep, tLog;
 
+// Vibration cues: one short buzz per shuttle, two at each new level
+var SHUTTLE_BUZZ = 180, LEVEL_BUZZ = 150; // ms
+function cueShuttle() { cue(1, SHUTTLE_BUZZ); }
+function cueLevel() { cue(2, LEVEL_BUZZ); }
 function cue(n, len) {
   var p = Promise.resolve();
   for (var i = 0; i < n; i++) {
@@ -112,10 +116,10 @@ function schedule() {
     if (q.shuttle == 0) {
       // exact sample on the level boundary so exported laps line up
       writeSample(p.nextAt, q);
-      cue(3, 180);
+      cueLevel();
       emit("level", q);
     } else {
-      cue(1, 250);
+      cueShuttle();
       emit("shuttle", q);
     }
     schedule();
@@ -159,7 +163,7 @@ exports.start = function (m, opts) {
   S.writeJSON(STATE, st);
   log = S.open(st.file, "w");
   log.write("start," + Math.round(start * 1000) + "," + new Date().getTimezoneOffset() + "," + m + "\n");
-  cue(3, 180);
+  cueLevel();
   run();
   logTick();
 };
@@ -202,7 +206,7 @@ function stop(completed, at) {
   S.writeJSON(HISTORY, hist);
   S.erase(STATE);
   st = undefined;
-  cue(2, 500);
+  cue(2, 350);
   updateWidget();
   emit("done", res);
   return res;

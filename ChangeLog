@@ -1,1 +1,2 @@
 0.01: New app! Beep test on a 20m or 15m course with vibration cues, a clock widget while it runs, HR logging, optional GPS speed, TCX/CSV export
+0.02: Shorter vibrations, and two buzzes (not three) at each new level

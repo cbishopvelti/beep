@@ -5,7 +5,7 @@ for Bangle.js 2, with heart rate logging you can export to your phone or fitness
 service.
 
 Tap the screen to start (the button never starts a test). The watch buzzes once at
-the end of each shuttle and three times at each new level, and shows your level,
+the end of each shuttle and twice at each new level, and shows your level,
 shuttle, a countdown bar to the next buzz, your heart rate and the distance so far.
 Press the button for a menu: before a test it has the course, GPS speed and past
 results; during a test **Back to test**, **Stop & save** and **Cancel test**.
@@ -26,7 +26,7 @@ merged) are in [docs/DEVELOPMENT.md](https://github.com/cbishopvelti/beep/blob/m
    in the menu). You get a 5 second countdown (press the button to cancel).
 3. Run to the other line before each cue:
    * **1 buzz**: end of a shuttle, turn and go.
-   * **3 buzzes**: new level, the pace gets faster.
+   * **2 buzzes**: new level, the pace gets faster.
 4. When you can no longer reach the line in time, **press the button** and choose
    **Stop & save**. The moment you pressed the button is what counts, so take your time
    in the menu. Your result is shown as `level.shuttle` (the last shuttle you completed),

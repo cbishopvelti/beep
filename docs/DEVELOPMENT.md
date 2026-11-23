@@ -67,7 +67,7 @@ while ago.
 
 | To test | Type |
 |---|---|
-| Level 2 starts (3 buzzes) in 10 s | `require("beeptest").start(20,{start:Date.now()-53000})` |
+| Level 2 starts (2 buzzes) in 10 s | `require("beeptest").start(20,{start:Date.now()-53000})` |
 | Level 8 starts in 10 s, 20m | `require("beeptest").start(20,{start:Date.now()-432000})` |
 | The end of level 21 (test complete) in 10 s | `require("beeptest").start(20,{start:Date.now()-1311000})` |
 | 15m course, with GPS speed | `require("beeptest").start(15,{gps:true})` |
@@ -78,10 +78,10 @@ before a check that needs the watch on your wrist.
 1. **Install.** Beep Test is in the launcher with its icon. Opening it shows
    the course and "Tap to start". No widget on the clock while idle.
 2. **Start.** Press the button on the start screen: a menu opens and nothing
-   buzzes. Back out, then tap the screen: a 5 s countdown, three buzzes and the
+   buzzes. Back out, then tap the screen: a 5 s countdown, two buzzes and the
    test starts.
 3. **Cues.** With the watch on your wrist, the single shuttle buzz and the
-   triple level buzz are easy to tell apart without looking.
+   double level buzz are easy to tell apart without looking.
 4. **Long press.** During a test hold the button about 1.5 s: the watch goes
    to the clock, the widget shows `level.shuttle` and heart rate, and the buzzes
    carry on. A short press (under 1 s) opens the menu instead.
