@@ -1,0 +1,33 @@
+name: Emulator tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # the suite takes well under a minute; this stops a hang
+    env:
+      BANGLE_DIR: ${{ github.workspace }}/../bangle
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sh tests/setup-emulator.sh
+      - run: npm test
+      - run: npm run bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bleeptest-install
+          path: dist/bleeptest-install.js
+  store-check:
+    # The checks the official app store (espruino/BangleApps) runs on a PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sh tools/store-check.sh "$RUNNER_TEMP/BangleApps"

@@ -1,0 +1,111 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="../../css/spectre.min.css">
+    <style>
+      body { padding: 8px; }
+      td, th { vertical-align: middle; }
+    </style>
+  </head>
+  <body>
+    <h4>Bleep Test results</h4>
+    <p>Download a test's heart rate log as <b>TCX</b> (import into Strava, Garmin Connect,
+      Runalyze, Golden Cheetah, etc.) or <b>CSV</b> (spreadsheets).</p>
+    <label class="form-checkbox">
+      <input type="checkbox" id="lowconf">
+      <i class="form-icon"></i> Leave out low-confidence heart rate readings (&lt;50%)
+    </label>
+    <div id="list"><p>Loading...</p></div>
+
+    <script src="../../core/lib/interface.js"></script>
+    <script src="bleeplog.js"></script>
+    <script>
+var listEl = document.getElementById("list");
+
+function fmtDate(ms) {
+  return new Date(ms).toLocaleString();
+}
+
+function render(hist, files) {
+  // Results the watch remembers, plus any logs without a history entry
+  var known = {};
+  hist.forEach(function(h){ known[h.f] = 1; });
+  files.forEach(function(f){
+    if (!known[f]) hist.push({ f: f, t: parseInt(f.split(".")[1]) * 1000 });
+  });
+  hist = hist.filter(function(h){ return files.indexOf(h.f) >= 0; });
+  hist.sort(function(a,b){ return b.t - a.t; });
+  if (!hist.length) {
+    listEl.innerHTML = "<p>No bleep test logs found on the watch.</p>";
+    return;
+  }
+  var html = '<table class="table table-striped"><thead><tr><th>Date</th><th>Course</th><th>Result</th><th>Distance</th><th>HR avg / max</th><th></th></tr></thead><tbody>';
+  hist.forEach(function(h, i) {
+    html += "<tr><td>" + fmtDate(h.t) + "</td>" +
+      "<td>" + (h.l !== undefined ? (h.m || 20) + " m" : "") + "</td>" +
+      "<td>" + (h.l !== undefined ? h.l + "." + h.s : "?") + "</td>" +
+      "<td>" + (h.d !== undefined ? h.d + " m" : "") + "</td>" +
+      "<td>" + (h.avg !== undefined ? (h.avg || "-") + " / " + (h.max || "-") : "") + "</td>" +
+      '<td><button class="btn btn-primary btn-sm" data-act="tcx" data-f="' + h.f + '">TCX</button> ' +
+      '<button class="btn btn-sm" data-act="csv" data-f="' + h.f + '">CSV</button> ' +
+      '<button class="btn btn-error btn-sm" data-act="del" data-f="' + h.f + '">Delete</button></td></tr>';
+  });
+  html += "</tbody></table>";
+  listEl.innerHTML = html;
+}
+
+function load() {
+  listEl.innerHTML = "<p>Loading...</p>";
+  Util.showModal("Loading...");
+  Puck.eval('require("Storage").readJSON("bleeptest.json",1)||[]', function(hist) {
+    Puck.eval('require("Storage").list(/^bleeptest\\.\\d+\\.csv\\x01$/).map(function(f){return f.slice(0,-1)})', function(files) {
+      Util.hideModal();
+      render(hist || [], files || []);
+    });
+  });
+}
+
+function download(file, kind) {
+  Util.showModal("Downloading...");
+  Util.readStorageFile(file, function(text) {
+    Util.hideModal();
+    try {
+      var log = BleepLog.parse(text);
+      var base = BleepLog.fileBase(log);
+      if (kind == "tcx") {
+        var minConf = document.getElementById("lowconf").checked ? 50 : 0;
+        Util.saveFile(base + ".tcx", "application/vnd.garmin.tcx+xml", BleepLog.toTCX(log, { minConfidence: minConf }));
+      } else {
+        Util.saveFile(base + ".csv", "text/csv", BleepLog.toCSV(log));
+      }
+    } catch (e) {
+      alert("Could not convert " + file + ": " + e.message);
+    }
+  });
+}
+
+function erase(file) {
+  if (!confirm("Delete " + file + " from the watch?")) return;
+  Util.showModal("Deleting...");
+  Util.eraseStorageFile(file, function() {
+    Puck.eval('(function(){var s=require("Storage");var h=s.readJSON("bleeptest.json",1)||[];s.writeJSON("bleeptest.json",h.filter(function(x){return x.f!=' + JSON.stringify(file) + '}));return 1})()', function() {
+      Util.hideModal();
+      load();
+    });
+  });
+}
+
+listEl.addEventListener("click", function(e) {
+  var b = e.target.closest("button");
+  if (!b) return;
+  var f = b.getAttribute("data-f");
+  var act = b.getAttribute("data-act");
+  if (act == "del") erase(f);
+  else download(f, act);
+});
+
+function onInit() {
+  load();
+}
+    </script>
+  </body>
+</html>

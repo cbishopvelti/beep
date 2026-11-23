@@ -1,0 +1,36 @@
+{
+  "id": "bleeptest",
+  "name": "Bleep Test",
+  "shortName": "Bleep Test",
+  "version": "0.01",
+  "description": "Multistage fitness (bleep / beep) test on a 20m or 15m course, with vibration cues, a clock widget while it runs, and heart rate logging you can export as TCX or CSV.",
+  "icon": "app.png",
+  "screenshots": [
+    { "url": "screenshots/1-start.png" },
+    { "url": "screenshots/2-menu.png" },
+    { "url": "screenshots/3-running.png" },
+    { "url": "screenshots/4-test-menu.png" },
+    { "url": "screenshots/5-clock-widget.png" },
+    { "url": "screenshots/6-result.png" }
+  ],
+  "type": "app",
+  "tags": "health,sport,fitness,hrm,widget",
+  "supports": ["BANGLEJS2"],
+  "readme": "README.md",
+  "author": "cbishopvelti",
+  "interface": "interface.html",
+  "allow_emulator": true,
+  "storage": [
+    { "name": "bleeptest.app.js", "url": "app.js" },
+    { "name": "bleeptest.img", "url": "app-icon.js", "evaluate": true },
+    { "name": "bleeptest", "url": "lib.js" },
+    { "name": "bleeptest.boot.js", "url": "boot.js" },
+    { "name": "bleeptest.wid.js", "url": "widget.js" }
+  ],
+  "data": [
+    { "name": "bleeptest.json" },
+    { "name": "bleeptest.settings.json" },
+    { "name": "bleeptest.state.json" },
+    { "wildcard": "bleeptest.*.csv", "storageFile": true }
+  ]
+}
