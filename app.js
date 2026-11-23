@@ -234,5 +234,6 @@ function showEntry(i) {
 
 g.clear();
 Bangle.loadWidgets();
+if (WIDGETS.beeptest) WIDGETS.beeptest.inApp = true; // tapping it here does nothing
 Bangle.drawWidgets();
 showReady();
