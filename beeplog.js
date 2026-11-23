@@ -13,6 +13,9 @@
         out.startMs = +p[1];
         out.tzOffset = +p[2] || 0;
         out.course = +p[3] || 20;
+      } else if (p[0] == "clock") {
+        // the watch's clock was set by this much (s) during the test
+        out.startMs += +p[1] * 1000;
       } else if (p[0] == "end") {
         out.end = { t: +p[1], level: +p[2], shuttle: +p[3], dist: +p[4], maxHr: +p[5], avgHr: +p[6] };
       } else if (p.length >= 6 && !isNaN(+p[0])) {

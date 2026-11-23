@@ -108,6 +108,21 @@ function logTick() {
   writeSample(t, position(st.m, t));
 }
 
+// The phone (Gadgetbridge) and the App Loader set the watch's clock with
+// setTime() when they connect, which would make the test jump. Keep the time
+// since the start as it was by moving the start too, and note it in the log
+// so the export uses the corrected clock. (Timers aren't affected: they fire
+// the same time after they were set whatever the clock says.)
+var setTime0;
+function onSetTime(t) {
+  var d = t - getTime();
+  setTime0(t);
+  if (!st || !d) return;
+  st.start += d;
+  write("clock," + d.toFixed(3) + "\n");
+  try { S.writeJSON(STATE, st); } catch (e) { }
+}
+
 function emit(type, data) { Bangle.emit("beeptest", { type: type, data: data }); }
 
 function updateWidget() {
@@ -143,6 +158,7 @@ function run() {
     Bangle.setGPSPower(1, "beeptest");
   }
   log = S.open(st.file, "a");
+  if (!setTime0) { setTime0 = global.setTime; global.setTime = onSetTime; }
   schedule();
   tLog = setInterval(logTick, 1000);
   updateWidget();
@@ -152,6 +168,7 @@ function halt() {
   if (tBeep) clearTimeout(tBeep);
   if (tLog) clearInterval(tLog);
   tBeep = tLog = undefined;
+  if (setTime0) { global.setTime = setTime0; setTime0 = undefined; }
   Bangle.removeListener("HRM", onHRM);
   Bangle.setHRMPower(0, "beeptest");
   if (st && st.gps) {
