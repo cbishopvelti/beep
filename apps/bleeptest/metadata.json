@@ -1,0 +1,22 @@
+{
+  "id": "bleeptest",
+  "name": "Bleep Test",
+  "shortName": "Bleep Test",
+  "version": "0.01",
+  "description": "20m multistage fitness (bleep / beep) test with vibration cues, level display and heart rate logging. Export each test as TCX or CSV from the App Loader.",
+  "icon": "app.png",
+  "type": "app",
+  "tags": "health,sport,fitness,hrm",
+  "supports": ["BANGLEJS", "BANGLEJS2"],
+  "readme": "README.md",
+  "interface": "interface.html",
+  "allow_emulator": true,
+  "storage": [
+    { "name": "bleeptest.app.js", "url": "app.js" },
+    { "name": "bleeptest.img", "url": "app-icon.js", "evaluate": true }
+  ],
+  "data": [
+    { "name": "bleep.json" },
+    { "wildcard": "bleep.*.csv", "storageFile": true }
+  ]
+}

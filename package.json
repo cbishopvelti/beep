@@ -1,0 +1,8 @@
+{
+  "name": "bleep",
+  "private": true,
+  "description": "Bleep test app for Bangle.js",
+  "scripts": {
+    "test": "node test/test.js"
+  }
+}
