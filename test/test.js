@@ -147,7 +147,7 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   runFor(w, t * 1000 + 1500, 150);
   w.press(200);                       // drop out: opens menu, time recorded
   w.advance(10000);                   // fumbling with the menu (more than a shuttle)
-  w.menu()["Stop test"]();
+  w.menu()["Stop & save"]();
   assert.strictEqual(w.ev("view"), "result");
   const hist = JSON.parse(w.files["bleep.json"]);
   assert.deepStrictEqual([hist[0].m, hist[0].l, hist[0].s], [20, 8, 5]);
@@ -195,7 +195,7 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   assert.strictEqual(w.ev("view"), "run");
   runFor(w, 30000, 170);
   w.press(200);
-  w.menu()["Stop test"]();
+  w.menu()["Stop & save"]();
   const hist = JSON.parse(w.files["bleep.json"]);
   assert.strictEqual(hist[0].m, 15);
   const tt = 240;
@@ -239,4 +239,22 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   assert(!w.ev("bleepTest.active()"));
   console.log("ok countdown cancel");
 }
-console.log("all tests passed");
+// --- cancel during a test: no result, log deleted, widget hidden ---
+(async () => {
+  const w = makeWatch(); w.boot(SRC.app);
+  w.press(200); w.menu()["Start test"](); w.advance(5000);
+  runFor(w, 30000, 120);
+  const file = w.ev("bleepTest.status()") && Object.keys(w.files).find(f => /^bleep\.\d+\.csv$/.test(f));
+  w.press(200);
+  assert(w.menu()["Back to test"] && w.menu()["Stop & save"] && !w.menu()["Course"], "running menu differs");
+  w.menu()["Cancel test"]();
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(w.ev("view"), "ready");
+  assert(!w.ev("bleepTest.active()"));
+  assert.strictEqual(w.files[file], undefined, "log deleted");
+  assert.strictEqual(w.files["bleep.json"], undefined, "no result saved");
+  assert.strictEqual(w.files["bleeptest.state.json"], undefined);
+  assert.strictEqual(w.ev("WIDGETS.bleeptest.width"), 0);
+  console.log("ok cancel during test");
+  console.log("all tests passed");
+})();

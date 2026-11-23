@@ -13,17 +13,19 @@ with heart rate logging you can export to your phone or fitness service.
    * **1 buzz**: end of a shuttle, turn and go.
    * **3 buzzes**: new level, the pace gets faster.
 4. When you can no longer reach the line in time, **press the button** and choose
-   **Stop test**. The moment you pressed the button is what counts, so take your time
+   **Stop & save**. The moment you pressed the button is what counts, so take your time
    in the menu. Your result is shown as `level.shuttle` (the last shuttle you completed),
    with total distance, average / max heart rate and, for the 20 m test, an estimated VO2max.
-5. Past results are under **Results** in the menu, where you can also delete them.
+5. To abandon a test instead (a false start, say), choose **Cancel test**: nothing is
+   saved and its heart rate log is deleted.
+6. Past results are under **Results** in the menu, where you can also delete them.
 
 ### Buttons
 
 | | Short press | Long press |
 |---|---|---|
 | Before a test | Menu (start, course, results) | Back to the clock |
-| During a test | Menu (back to test, stop) | Back to the clock, **test keeps running** |
+| During a test | Menu (back to test, stop & save, cancel) | Back to the clock, **test keeps running** |
 
 While a test is running in the background, cues carry on and a **widget** on the clock
 face shows the current `level.shuttle` and your heart rate. Open the app again to see

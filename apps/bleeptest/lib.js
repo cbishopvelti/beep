@@ -199,6 +199,18 @@ function stop(completed, at) {
   return res;
 }
 
+// Abandon the test: no result, and its HR log is deleted
+exports.cancel = function () {
+  if (!st) return;
+  halt();
+  log = undefined;
+  S.open(st.file, "r").erase();
+  S.erase(STATE);
+  st = undefined;
+  updateWidget();
+  emit("cancel");
+};
+
 exports.active = function () { return !!st; };
 
 // Live status for the app and widget

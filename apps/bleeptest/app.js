@@ -162,10 +162,16 @@ function showMenu() {
     m = {
       "": { title: "Test running", back: showRun },
       "Back to test": showRun,
-      "Stop test": function () {
+      "Stop & save": function () {
         var res = bt.stop(false, stopAt);
         restoreAwake();
         showResult(res, showReady);
+      },
+      "Cancel test": function () {
+        E.showPrompt("Cancel without saving?").then(function (ok) {
+          if (ok) { bt.cancel(); showReady(); }
+          else showMenu();
+        });
       }
     };
   } else {
