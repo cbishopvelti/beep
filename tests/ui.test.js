@@ -154,3 +154,22 @@ test("Results lists past tests", async h => {
   assert.eq(items.length, 1);
   assert(/ 20m 3\.1$/.test(items[0]), items[0]);
 });
+
+test("the watch locks as usual during a test, and redraws less when locked", async h => {
+  const before = h.eval("Bangle.getOptions().lockTimeout");
+  startAgo(h, 20, 30);
+  await h.load("beeptest.app.js");
+  assert.eq(h.eval("view"), "run");
+  assert.eq(h.eval("Bangle.getOptions().lockTimeout"), before, "lock timeout left alone");
+  h.tx("global.N=0;(function(o){global.drawRun=function(){N++;return o()}})(drawRun)");
+  const draws = async () => {
+    h.tx("showRun();N=0");
+    await h.wait(4000);
+    return h.eval("N");
+  };
+  h.tx("Bangle.setLocked(false)");
+  const unlocked = await draws();
+  h.tx("Bangle.setLocked(true)");
+  const locked = await draws();
+  assert(unlocked >= 14 && locked <= 5, `draws in 4 s: ${unlocked} unlocked, ${locked} locked`);
+});

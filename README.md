@@ -55,8 +55,9 @@ the full screen or to stop the test.
 
 Bangle.js 2 has no speaker, so cues are vibrations.
 
-While the app is open during a test, the screen stays on and unlocked. Your normal
-timeout settings are restored afterwards.
+The watch locks and the backlight goes off as usual during a test (the buzzes and
+logging carry on), so sweaty taps can't press anything. When it's locked, the first
+button press may only wake it: press again for the menu.
 
 ## Courses and timings
 
