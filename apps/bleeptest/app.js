@@ -90,7 +90,6 @@ function showReady() {
   var last = (storage.readJSON(HISTORY, 1) || [])[0];
   g.setFont("6x8");
   if (last) g.drawString("Last: " + last.l + "." + last.s + " (" + (last.m || 20) + "m)", cx, R.y + 104);
-  g.drawString("BTN: menu   hold: clock", cx, R.y2 - 10);
 }
 
 // ---------- countdown ----------
@@ -107,7 +106,7 @@ function startCountdown() {
     g.setFont("Vector", 60).drawString(n, cx, R.y + R.h / 2 + 5);
     g.setFont("6x8").drawString("BTN: cancel", cx, R.y2 - 8);
     if (n <= 0) {
-      bt.start(settings.m);
+      bt.start(settings.m, { gps: settings.gps });
       Bangle.setHRMPower(0, "bleeptest.app");
       showRun();
       return;
@@ -146,7 +145,7 @@ function drawRun() {
   g.setFont("Vector", 26).setFontAlign(-1, -1).drawString(s.bpm > 0 ? Math.round(s.bpm) : "--", R.x + 28, by + 32);
   g.setFont("Vector", s.dist >= 1000 ? 20 : 26).setFontAlign(1, -1).drawString(s.dist + "m", R.x2 - 4, by + 34);
   g.setFont("6x8").setFontAlign(-1, 1).drawString(fmtTime(s.t), R.x + 4, R.y2 - 2);
-  g.setFontAlign(1, 1).drawString("BTN: menu", R.x2 - 4, R.y2 - 2);
+  if (s.gps) g.setFontAlign(1, 1).drawString("GPS " + (isNaN(s.gpsSpeed) ? "--" : s.gpsSpeed.toFixed(1)) + " km/h", R.x2 - 4, R.y2 - 2);
 }
 
 Bangle.on("bleeptest", function (e) {
@@ -187,6 +186,10 @@ function showMenu() {
         min: 0, max: COURSES.length - 1,
         format: function (v) { return COURSES[v] + "m"; },
         onchange: function (v) { settings.m = COURSES[v]; storage.writeJSON(SETTINGS, settings); }
+      },
+      "GPS speed": {
+        value: !!settings.gps,
+        onchange: function (v) { settings.gps = v; storage.writeJSON(SETTINGS, settings); }
       },
       "Results": showHistory,
       "Exit": function () { load(); }

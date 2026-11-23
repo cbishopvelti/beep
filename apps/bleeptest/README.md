@@ -20,11 +20,18 @@ with heart rate logging you can export to your phone or fitness service.
    saved and its heart rate log is deleted.
 6. Past results are under **Results** in the menu, where you can also delete them.
 
+### GPS speed
+
+Turn on **GPS speed** in the menu to show live GPS speed on the test screen and record speed
+and position in the log (and the TCX export). It is off by default: on 20 m / 15 m shuttles
+GPS speed lags and is only accurate to a few metres, it rarely gets a fix indoors, and it
+uses a lot of battery. The target speed for the level is always shown.
+
 ### Buttons
 
 | | Short press | Long press |
 |---|---|---|
-| Before a test | Menu (start, course, results) | Back to the clock |
+| Before a test | Menu (start, course, GPS, results) | Back to the clock |
 | During a test | Menu (back to test, stop & save, cancel) | Back to the clock, **test keeps running** |
 
 While a test is running in the background, cues carry on and a **widget** on the clock

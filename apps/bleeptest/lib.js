@@ -50,6 +50,7 @@ function result(m, p) {
 var st;          // persisted state while a test runs
 var log;         // StorageFile
 var hr = { bpm: 0, conf: 0 };
+var gps = { speed: NaN, lat: NaN, lon: NaN }; // speed km/h, NaN = no fix
 var tBeep, tLog;
 
 var HAS_BEEPER = process.env.HWVERSION == 1;
@@ -66,6 +67,11 @@ function cue(n, len) {
 }
 
 function onHRM(h) { hr.bpm = h.bpm; hr.conf = h.confidence; }
+function onGPS(f) {
+  if (f.fix && !isNaN(f.speed)) { gps.speed = f.speed; gps.lat = f.lat; gps.lon = f.lon; }
+  else gps.speed = gps.lat = gps.lon = NaN;
+}
+function fmtNum(v, dp) { return isNaN(v) ? "" : v.toFixed(dp); }
 
 function now() { return getTime() - st.start; }
 
@@ -78,7 +84,8 @@ function distanceAt(p, t) {
 
 function writeSample(t, p) {
   log.write(t.toFixed(1) + "," + Math.round(hr.bpm) + "," + Math.round(hr.conf) + "," +
-    p.level + "," + p.shuttle + "," + distanceAt(p, t).toFixed(1) + "\n");
+    p.level + "," + p.shuttle + "," + distanceAt(p, t).toFixed(1) +
+    (st.gps ? "," + fmtNum(gps.speed, 1) + "," + fmtNum(gps.lat, 6) + "," + fmtNum(gps.lon, 6) : "") + "\n");
 }
 
 function logTick() {
@@ -120,6 +127,10 @@ function schedule() {
 function run() {
   Bangle.on("HRM", onHRM);
   Bangle.setHRMPower(1, "bleeptest");
+  if (st.gps) {
+    Bangle.on("GPS", onGPS);
+    Bangle.setGPSPower(1, "bleeptest");
+  }
   log = S.open(st.file, "a");
   schedule();
   tLog = setInterval(logTick, 1000);
@@ -132,14 +143,18 @@ function halt() {
   tBeep = tLog = undefined;
   Bangle.removeListener("HRM", onHRM);
   Bangle.setHRMPower(0, "bleeptest");
+  if (st && st.gps) {
+    Bangle.removeListener("GPS", onGPS);
+    Bangle.setGPSPower(0, "bleeptest");
+  }
 }
 
-// Start a test on an m metre course now
-exports.start = function (m) {
+// Start a test on an m metre course now. opts.gps: also record GPS speed/position
+exports.start = function (m, opts) {
   if (st) return;
   m = TESTS[m] ? m : 20;
   var start = getTime();
-  st = { start: start, m: m, file: "bleep." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0 };
+  st = { start: start, m: m, file: "bleep." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0, gps: !!(opts && opts.gps) };
   S.writeJSON(STATE, st);
   log = S.open(st.file, "w");
   log.write("start," + Math.round(start * 1000) + "," + new Date().getTimezoneOffset() + "," + m + "\n");
@@ -214,7 +229,8 @@ exports.status = function () {
   return {
     m: st.m, t: t, level: p.level, shuttle: p.shuttle, shuttles: shuttles(st.m)[p.level - 1],
     total: p.total, dist: p.total * st.m, speed: speed(p.level),
-    left: p.nextAt - t, dur: p.nextAt - p.shuttleStart, bpm: hr.bpm
+    left: p.nextAt - t, dur: p.nextAt - p.shuttleStart, bpm: hr.bpm,
+    gps: st.gps, gpsSpeed: gps.speed
   };
 };
 

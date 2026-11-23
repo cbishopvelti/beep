@@ -71,7 +71,7 @@ function makeCtx(w) {
       on: (e, f) => { (listeners[e] = listeners[e] || []).push(f); },
       removeListener: (e, f) => { listeners[e] = (listeners[e] || []).filter(x => x !== f); },
       emit: (e, d) => (listeners[e] || []).slice().forEach(f => f(d)),
-      setHRMPower: () => {}, buzz: (l) => { w.buzzes.push(w.now); return Promise.resolve(); }, beep: () => Promise.resolve(),
+      setHRMPower: () => {}, setGPSPower: (on) => { w.gpsOn = on; }, buzz: (l) => { w.buzzes.push(w.now); return Promise.resolve(); }, beep: () => Promise.resolve(),
       getOptions: () => ({ lockTimeout: 10000, backlightTimeout: 10000 }), setOptions: () => {},
       setLocked: () => {}, setLCDPower: () => {}, drawWidgets: () => {},
       loadWidgets: () => { ctx.WIDGETS = {}; vm.runInContext(SRC.wid, ctx); },
@@ -236,6 +236,38 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   assert(!w.ev("bleepTest.active()"));
   console.log("ok countdown cancel");
 }
+// --- GPS speed option: off by default, recorded and exported when on ---
+{
+  const w = makeWatch(); w.boot(SRC.app);
+  w.press(200);
+  assert.strictEqual(w.menu()["GPS speed"].value, false);
+  w.menu()["GPS speed"].onchange(true);
+  w.menu()["Start test"](); w.advance(5000);
+  assert.strictEqual(w.gpsOn, 1);
+  for (let i = 0; i < 20; i++) {
+    w.ctx.Bangle.emit("GPS", i < 5 ? { fix: 0, speed: NaN } : { fix: 1, speed: 7.9 + i / 100, lat: 51.5 + i * 1e-5, lon: -0.12 });
+    w.ctx.__hrm(130); w.advance(1000);
+  }
+  assert(Math.abs(w.ev("bleepTest.status().gpsSpeed") - 8.09) < 1e-9);
+  w.boot(null); w.boot(SRC.app);             // GPS carries on across app changes
+  assert.strictEqual(w.gpsOn, 1);
+  w.ctx.Bangle.emit("GPS", { fix: 1, speed: 8.2, lat: 51.5003, lon: -0.12 });
+  w.advance(1000);
+  w.press(200); w.menu()["Stop & save"]();
+  assert.strictEqual(w.gpsOn, 0, "GPS off after the test");
+  const hist = JSON.parse(w.files["bleep.json"]);
+  const log = BleepLog.parse(w.files[hist[0].f]);
+  assert(log.samples.some(s => isNaN(s.gpsSpeed)) && log.samples.some(s => s.gpsSpeed === 8.2));
+  const tcx = BleepLog.toTCX(log);
+  fs.writeFileSync(path.join(__dirname, "out", "sample-gps.tcx"), tcx);
+  assert(tcx.includes("<ns3:Speed>2.28</ns3:Speed>") && tcx.includes("<LatitudeDegrees>51.5003</LatitudeDegrees>"));
+  assert(BleepLog.toCSV(log).split("\n")[1].endsWith(",,,"), "no-fix rows have empty GPS columns");
+  // and with GPS off nothing is powered or logged
+  const w2 = makeWatch(); w2.boot(SRC.app); w2.ev("startCountdown()"); w2.advance(8000);
+  assert.strictEqual(w2.gpsOn, undefined);
+  console.log("ok GPS speed option");
+}
+
 // --- a long hold does not open the menu ---
 {
   const w = makeWatch(); w.boot(SRC.app);

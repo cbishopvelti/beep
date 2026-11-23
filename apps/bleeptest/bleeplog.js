@@ -16,11 +16,14 @@
       } else if (p[0] == "end") {
         out.end = { t: +p[1], level: +p[2], shuttle: +p[3], dist: +p[4], maxHr: +p[5], avgHr: +p[6] };
       } else if (p.length >= 6 && !isNaN(+p[0])) {
-        out.samples.push({ t: +p[0], bpm: +p[1], conf: +p[2], level: +p[3], shuttle: +p[4], dist: +p[5] });
+        out.samples.push({ t: +p[0], bpm: +p[1], conf: +p[2], level: +p[3], shuttle: +p[4], dist: +p[5],
+          gpsSpeed: num(p[6]), lat: num(p[7]), lon: num(p[8]) });
       }
     });
     return out;
   }
+
+  function num(v) { return v === undefined || v === "" ? NaN : +v; }
 
   function iso(ms) { return new Date(Math.round(ms)).toISOString().replace(/\.\d{3}Z$/, "Z"); }
 
@@ -54,7 +57,7 @@
 
     var x = [];
     x.push('<?xml version="1.0" encoding="UTF-8"?>');
-    x.push('<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">');
+    x.push('<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">');
     x.push(' <Activities>');
     x.push('  <Activity Sport="Running">');
     x.push('   <Id>' + id + '</Id>');
@@ -85,9 +88,13 @@
       lap.pts.forEach(function (p) {
         x.push('     <Trackpoint>');
         x.push('      <Time>' + iso(start + p.t * 1000) + '</Time>');
+        if (!isNaN(p.lat) && !isNaN(p.lon))
+          x.push('      <Position><LatitudeDegrees>' + p.lat + '</LatitudeDegrees><LongitudeDegrees>' + p.lon + '</LongitudeDegrees></Position>');
         x.push('      <DistanceMeters>' + p.dist.toFixed(1) + '</DistanceMeters>');
         if (p.bpm > 0 && p.conf >= minConf)
           x.push('      <HeartRateBpm><Value>' + Math.round(p.bpm) + '</Value></HeartRateBpm>');
+        if (!isNaN(p.gpsSpeed)) // GPS speed, m/s
+          x.push('      <Extensions><ns3:TPX><ns3:Speed>' + (p.gpsSpeed / 3.6).toFixed(2) + '</ns3:Speed></ns3:TPX></Extensions>');
         x.push('     </Trackpoint>');
       });
       x.push('    </Track>');
@@ -104,9 +111,10 @@
   }
 
   function toCSV(log) {
-    var rows = ["time,elapsed_s,heart_rate_bpm,hr_confidence,level,shuttle,distance_m"];
+    var rows = ["time,elapsed_s,heart_rate_bpm,hr_confidence,level,shuttle,distance_m,gps_speed_kmh,latitude,longitude"];
     log.samples.forEach(function (s) {
-      rows.push([iso(log.startMs + s.t * 1000), s.t, s.bpm, s.conf, s.level, s.shuttle, s.dist].join(","));
+      rows.push([iso(log.startMs + s.t * 1000), s.t, s.bpm, s.conf, s.level, s.shuttle, s.dist,
+        isNaN(s.gpsSpeed) ? "" : s.gpsSpeed, isNaN(s.lat) ? "" : s.lat, isNaN(s.lon) ? "" : s.lon].join(","));
     });
     return rows.join("\n") + "\n";
   }
