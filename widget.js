@@ -24,6 +24,13 @@
     }
   }
   WIDGETS.beeptest = { area: "tl", width: 0, draw: draw, update: update };
+  // Tap the widget (on the clock or any other app) to go back to the test.
+  // The app sets inApp so a tap there doesn't reload it.
+  Bangle.on("touch", function (b, e) {
+    var w = WIDGETS.beeptest;
+    if (!w || w.inApp || !w.width || w.x === undefined || !e || !active()) return;
+    if (e.x >= w.x - 8 && e.x < w.x + w.width + 8 && e.y >= w.y && e.y < w.y + 32) load("beeptest.app.js");
+  });
   if (active()) {
     WIDGETS.beeptest.width = 30;
     timer = setInterval(function () { WIDGETS.beeptest.draw(WIDGETS.beeptest); }, 1000);

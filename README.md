@@ -50,8 +50,8 @@ uses a lot of battery. The target speed for the level is always shown.
 | During a test | Menu (back to test, stop & save, cancel) | Back to the clock, **test keeps running** |
 
 While a test is running in the background, cues carry on and a **widget** on the clock
-face shows the current `level.shuttle` and your heart rate. Open the app again to see
-the full screen or to stop the test.
+face shows the current `level.shuttle` and your heart rate. Tap the widget (or open the app
+again) to get back to the full screen or to stop the test.
 
 Bangle.js 2 has no speaker, so cues are vibrations.
 

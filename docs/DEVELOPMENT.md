@@ -84,7 +84,7 @@ before a check that needs the watch on your wrist.
    double level buzz are easy to tell apart without looking.
 4. **Long press.** During a test hold the button about 1.5 s: the watch goes
    to the clock, the widget shows `level.shuttle` and heart rate, and the buzzes
-   carry on. A short press (under 1 s) opens the menu instead.
+   carry on. Unlock the watch and tap the widget: the test screen comes back. A short press (under 1 s) opens the menu instead.
 5. **Stop & save.** Press the button, wait a few seconds, choose Stop & save:
    the result is the last shuttle completed when you pressed the button.
 6. **Cancel test.** Asks first, then goes back to the start screen with no result.
