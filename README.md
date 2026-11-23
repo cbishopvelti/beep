@@ -23,7 +23,7 @@ merged) are in [docs/DEVELOPMENT.md](https://github.com/cbishopvelti/beep/blob/m
 1. Mark out two lines 20 m or 15 m apart.
 2. Open **Beep Test**. To change the course, press the button and pick **Course**
    (20m or 15m; it is remembered). Tap the screen to start (or choose **Start test**
-   in the menu). You get a 5 second countdown (press the button to cancel).
+   in the menu). You get a 3 second countdown (press the button to cancel).
 3. Run to the other line before each cue:
    * **1 buzz**: end of a shuttle, turn and go.
    * **2 buzzes**: new level, the pace gets faster.

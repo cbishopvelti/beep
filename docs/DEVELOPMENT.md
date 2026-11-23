@@ -78,7 +78,7 @@ before a check that needs the watch on your wrist.
 1. **Install.** Beep Test is in the launcher with its icon. Opening it shows
    the course and "Tap to start". No widget on the clock while idle.
 2. **Start.** Press the button on the start screen: a menu opens and nothing
-   buzzes. Back out, then tap the screen: a 5 s countdown, two buzzes and the
+   buzzes. Back out, then tap the screen: a 3 s countdown, two buzzes and the
    test starts.
 3. **Cues.** With the watch on your wrist, the single shuttle buzz and the
    double level buzz are easy to tell apart without looking.

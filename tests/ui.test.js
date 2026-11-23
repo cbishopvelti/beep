@@ -22,12 +22,14 @@ test("start screen: course and Tap to start, no button hints", async h => {
   assert(!drawn.some(s => /BTN/.test(s)), "no BTN hint: " + drawn);
 });
 
-test("tap starts a 5 s countdown, then the test", async h => {
+test("tap starts a 3 s countdown, then the test", async h => {
   await open(h);
   tap(h);
   assert.eq(h.eval("view"), "countdown");
   assert(!h.eval(`${BT}.active()`), "not started yet");
-  await h.wait(5100);
+  await h.wait(2900);
+  assert.eq(h.eval("view"), "countdown", "still counting at 2.9 s");
+  await h.wait(200);
   assert.eq(h.eval("view"), "run");
   assert.eq(h.eval(`${BT}.status().m`), 20);
 });
@@ -59,7 +61,7 @@ test("course and GPS choices are remembered and used", async h => {
   h.tx("showMenu()");
   assert.eq(h.eval("MENU.Course.format(MENU.Course.value)"), "15m");
   h.tx('MENU["Start test"]()');
-  await h.wait(5100);
+  await h.wait(3100);
   assert.eq(h.eval(`[${BT}.status().m,${BT}.status().gps]`), [15, true]);
   assert.eq(h.eval("GPS_USERS"), { beeptest: 1 });
 });

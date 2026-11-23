@@ -9,7 +9,7 @@ var storage = require("Storage");
 var bt = global.beepTest = require("beeptest");
 var SETTINGS = "beeptest.settings.json";
 var HISTORY = "beeptest.json";
-var COUNTDOWN = 5;
+var COUNTDOWN = 3;
 var COURSES = [20, 15];
 
 var settings = storage.readJSON(SETTINGS, 1) || {};
