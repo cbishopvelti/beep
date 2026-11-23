@@ -38,13 +38,12 @@ function render(hist, files) {
     listEl.innerHTML = "<p>No bleep test logs found on the watch.</p>";
     return;
   }
-  var html = '<table class="table table-striped"><thead><tr><th>Date</th><th>Course</th><th>Result</th><th>Distance</th><th>VO2max (est.)</th><th>HR avg / max</th><th></th></tr></thead><tbody>';
+  var html = '<table class="table table-striped"><thead><tr><th>Date</th><th>Course</th><th>Result</th><th>Distance</th><th>HR avg / max</th><th></th></tr></thead><tbody>';
   hist.forEach(function(h, i) {
     html += "<tr><td>" + fmtDate(h.t) + "</td>" +
       "<td>" + (h.l !== undefined ? (h.m || 20) + " m" : "") + "</td>" +
       "<td>" + (h.l !== undefined ? h.l + "." + h.s : "?") + "</td>" +
       "<td>" + (h.d !== undefined ? h.d + " m" : "") + "</td>" +
-      "<td>" + (h.vo2 || "-") + "</td>" +
       "<td>" + (h.avg !== undefined ? (h.avg || "-") + " / " + (h.max || "-") : "") + "</td>" +
       '<td><button class="btn btn-primary btn-sm" data-act="tcx" data-f="' + h.f + '">TCX</button> ' +
       '<button class="btn btn-sm" data-act="csv" data-f="' + h.f + '">CSV</button> ' +

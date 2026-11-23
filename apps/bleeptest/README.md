@@ -15,7 +15,7 @@ with heart rate logging you can export to your phone or fitness service.
 4. When you can no longer reach the line in time, **press the button** and choose
    **Stop & save**. The moment you pressed the button is what counts, so take your time
    in the menu. Your result is shown as `level.shuttle` (the last shuttle you completed),
-   with total distance, average / max heart rate and, for the 20 m test, an estimated VO2max.
+   with total distance and average / max heart rate.
 5. To abandon a test instead (a false start, say), choose **Cancel test**: nothing is
    saved and its heart rate log is deleted.
 6. Past results are under **Results** in the menu, where you can also delete them.
@@ -53,10 +53,6 @@ level adds 0.5 km/h up to level 21 (18.5 km/h). Each level lasts about a minute,
 
 Cue times are worked out from the test start time, so they do not drift, even when you
 switch apps.
-
-VO2max is estimated for the 20 m test only, with
-`3.46 × (level + shuttle / (0.4325 × level + 7.0048)) + 12.2` (Flouris et al., 2005).
-Treat it as a rough guide.
 
 ## Heart rate log and export
 

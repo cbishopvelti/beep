@@ -14,7 +14,7 @@
         out.tzOffset = +p[2] || 0;
         out.course = +p[3] || 20;
       } else if (p[0] == "end") {
-        out.end = { t: +p[1], level: +p[2], shuttle: +p[3], dist: +p[4], vo2: +p[5], maxHr: +p[6], avgHr: +p[7] };
+        out.end = { t: +p[1], level: +p[2], shuttle: +p[3], dist: +p[4], maxHr: +p[5], avgHr: +p[6] };
       } else if (p.length >= 6 && !isNaN(+p[0])) {
         out.samples.push({ t: +p[0], bpm: +p[1], conf: +p[2], level: +p[3], shuttle: +p[4], dist: +p[5] });
       }
@@ -29,8 +29,7 @@
   function resultText(log) {
     var name = log.course + "m bleep test";
     if (!log.end) return name + " (incomplete log)";
-    return name + " result " + log.end.level + "." + log.end.shuttle + ", " + log.end.dist + " m" +
-      (log.end.vo2 ? ", est. VO2max " + log.end.vo2 + " ml/kg/min" : "");
+    return name + " result " + log.end.level + "." + log.end.shuttle + ", " + log.end.dist + " m";
   }
 
   // opts.minConfidence: drop HR samples below this confidence (0-100)

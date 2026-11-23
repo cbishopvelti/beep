@@ -127,8 +127,6 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   }
   assert.strictEqual(lib.shuttleTime(15, 1), 6.75); // FitnessGram 15m PACER
   assert.strictEqual(JSON.stringify(lib.result(20, lib.position(20, 63.5))), JSON.stringify({ l: 1, s: 7 }));
-  assert.strictEqual(lib.vo2max(20, 8, 5), 41.5);
-  assert.strictEqual(lib.vo2max(15, 8, 5), 0);
   console.log("ok level tables (20m, 15m)");
 }
 
@@ -201,7 +199,7 @@ function runFor(w, ms, bpm) { for (let e = 0; e < ms; e += 1000) { w.ctx.__hrm(b
   const tt = 240;
   const p = lib.position(15, tt);
   assert.deepStrictEqual([hist[0].l, hist[0].s], [lib.result(15, p).l, lib.result(15, p).s]);
-  assert.strictEqual(hist[0].vo2, 0);
+  assert.strictEqual(hist[0].vo2, undefined);
   assert(hist[0].avg > 140 && hist[0].max === 170, "HR stats survive app changes: " + hist[0].avg + "/" + hist[0].max);
   // widget hides once stopped
   w.boot(null);

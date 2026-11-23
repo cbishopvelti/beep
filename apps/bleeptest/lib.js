@@ -45,11 +45,6 @@ function result(m, p) {
   return { l: 0, s: 0 };
 }
 
-// Estimated VO2max (ml/kg/min) for the 20m test only (Flouris et al. 2005)
-function vo2max(m, l, s) {
-  if (m != 20 || !l) return 0;
-  return Math.round((3.46 * (l + s / (0.4325 * l + 7.0048)) + 12.2) * 10) / 10;
-}
 /*TABLES_END*/
 
 var st;          // persisted state while a test runs
@@ -180,10 +175,10 @@ function stop(completed, at) {
   var r = result(st.m, p);
   var res = {
     t: Math.round(st.start * 1000), m: st.m, l: r.l, s: r.s,
-    d: p.total * st.m, dur: Math.round(t), vo2: vo2max(st.m, r.l, r.s),
+    d: p.total * st.m, dur: Math.round(t),
     max: st.hrMax, avg: st.hrN ? Math.round(st.hrSum / st.hrN) : 0, f: st.file
   };
-  log.write("end," + t.toFixed(1) + "," + res.l + "," + res.s + "," + res.d + "," + res.vo2 + "," + res.max + "," + res.avg + "\n");
+  log.write("end," + t.toFixed(1) + "," + res.l + "," + res.s + "," + res.d + "," + res.max + "," + res.avg + "\n");
   log = undefined;
   var hist = S.readJSON(HISTORY, 1) || [];
   hist.unshift(res);
@@ -226,7 +221,6 @@ exports.status = function () {
 exports.TESTS = TESTS;
 exports.position = position;
 exports.result = result;
-exports.vo2max = vo2max;
 exports.speed = speed;
 exports.shuttleTime = shuttleTime;
 

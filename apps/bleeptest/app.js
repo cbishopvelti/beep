@@ -203,10 +203,9 @@ function showResult(res, back) {
   g.setFont("Vector", 40).drawString(res.l + "." + res.s, cx, R.y + 14);
   g.setFont("6x8").drawString("level . shuttle  (" + (res.m || 20) + "m)", cx, R.y + 56);
   g.setFont("6x8", 2);
-  if (res.vo2) g.drawString("VO2max " + res.vo2, cx, R.y + 70);
-  g.drawString(res.d + "m  " + fmtTime(res.dur), cx, R.y + 90);
-  g.drawString("HR " + (res.avg || "--") + " / " + (res.max || "--"), cx, R.y + 110);
-  g.setFont("6x8").drawString("avg / max bpm", cx, R.y + 128);
+  g.drawString(res.d + "m  " + fmtTime(res.dur), cx, R.y + 76);
+  g.drawString("HR " + (res.avg || "--") + " / " + (res.max || "--"), cx, R.y + 100);
+  g.setFont("6x8").drawString("avg / max bpm", cx, R.y + 118);
 }
 
 function showHistory() {
