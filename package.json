@@ -1,8 +1,12 @@
 {
-  "name": "bleep",
+  "name": "bleeptest",
   "private": true,
-  "description": "Bleep test app for Bangle.js",
+  "description": "Bleep Test: multistage fitness test for Bangle.js 2",
   "scripts": {
-    "test": "node test/test.js"
+    "test": "node tests/run.js",
+    "setup-emulator": "sh tests/setup-emulator.sh",
+    "bundle": "node tools/install.js",
+    "screenshots": "node tools/screenshots.js",
+    "store-check": "sh tools/store-check.sh"
   }
 }

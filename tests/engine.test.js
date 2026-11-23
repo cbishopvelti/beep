@@ -1,0 +1,154 @@
+/* The test engine (lib.js, module "bleeptest"): timings, cues, results,
+   resuming after an app change, cancel, HR and GPS logging.
+   Run: node tests/run.js tests/engine.test.js -v */
+const { test, assert } = require("./harness");
+const { BT, timeAt, startAgo, spyBuzz, readFile } = require("./helpers");
+
+const hist = h => h.eval('require("Storage").readJSON("bleeptest.json",1)||[]');
+
+test("tables: 8.0 then 9.0 km/h, +0.5 a level, about a minute each", async h => {
+  assert.eq(h.eval(`[${BT}.speed(1),${BT}.speed(2),${BT}.speed(3),${BT}.speed(21)]`), [8, 9, 9.5, 18.5]);
+  assert.eq(h.eval(`${BT}.TESTS[20]`), [7, 8, 8, 9, 9, 10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16]);
+  assert.eq(h.eval(`${BT}.TESTS[15]`), [9, 10, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21]);
+  assert.eq(h.eval(`[${BT}.shuttleTime(20,1),${BT}.shuttleTime(15,1)]`), [9, 6.75]);
+  for (const m of [20, 15])
+    for (let l = 1; l <= 21; l++) {
+      const d = timeAt(h, m, l + 1, 0) - timeAt(h, m, l, 0);
+      assert(d > 58 && d < 66.5, `${m}m level ${l} lasts ${d}s`);
+    }
+});
+
+test("start: state saved, HR log started, HRM on, 3 buzzes", async h => {
+  spyBuzz(h);
+  h.tx(`${BT}.start(20)`);
+  await h.wait(1000);
+  const st = h.eval('require("Storage").readJSON("bleeptest.state.json",1)');
+  assert.eq(st.m, 20);
+  assert(/^bleeptest\.\d+\.csv$/.test(st.file), st.file);
+  assert.eq(h.eval("HRM_USERS"), { bleeptest: 1 });
+  assert.eq(h.eval("GPS_USERS"), {}, "no GPS unless asked");
+  assert.eq(h.eval("BUZZ.length"), 3);
+  const log = readFile(h, st.file).split("\n");
+  assert(/^start,\d+,-?\d+,20$/.test(log[0]), log[0]);
+  assert(log.length >= 3, "samples once a second");
+});
+
+test("cues: 1 buzz a shuttle, 3 at a new level, on the table's times", async h => {
+  h.tx(`${BT}.start(20)`);
+  spyBuzz(h);
+  const t0 = h.eval(`getTime()`);
+  await h.wait(64000);
+  const buzz = h.eval("BUZZ").map(([t, l]) => [Math.round((t - t0) * 100) / 100, l]);
+  // 6 shuttles at 9 s, then 3 buzzes when level 2 starts at 63 s
+  const shuttles = buzz.filter(b => b[1] == 250).map(b => b[0]);
+  assert.eq(shuttles.length, 6, JSON.stringify(buzz));
+  shuttles.forEach((t, i) => assert.near(t, 9 * (i + 1), 0.05, `shuttle ${i + 1}`));
+  const level = buzz.filter(b => b[1] == 180 && b[0] > 1); // not the start's
+  assert.eq(level.length, 3, "three buzzes for level 2");
+  assert.near(level[0][0], 63, 0.05, "level 2 at 63 s");
+  assert.eq(h.eval(`${BT}.status().level`), 2);
+});
+
+test("stop: result is the last completed shuttle, saved with HR stats", async h => {
+  startAgo(h, 20, timeAt(h, 20, 8, 5) + 2); // 2 s into shuttle 6 of level 8
+  for (const bpm of [150, 160, 170]) { h.tx(`Bangle.emit("HRM",{bpm:${bpm},confidence:90})`); await h.wait(1000); }
+  const res = h.eval(`${BT}.stop(false)`);
+  assert.eq([res.m, res.l, res.s, res.d], [20, 8, 5, (7 + 8 + 8 + 9 + 9 + 10 + 10 + 5) * 20]);
+  assert.eq([res.avg, res.max], [160, 170]);
+  assert(!("vo2" in res), "no VO2max");
+  assert.eq(hist(h)[0].f, res.f);
+  assert.eq(h.eval('require("Storage").read("bleeptest.state.json")===undefined'), true);
+  assert.eq(h.eval("HRM_USERS"), {}, "HRM off");
+  assert(/\nend,[\d.]+,8,5,1320,170,160\n$/.test(readFile(h, res.f)), "log ends with the result");
+});
+
+test("stop at a given time (when the button was pressed)", async h => {
+  startAgo(h, 15, timeAt(h, 15, 3, 2) + 1);
+  const at = h.eval(`${BT}.status().t`);
+  await h.wait(30000); // the runner takes a while to choose Stop
+  const res = h.eval(`${BT}.stop(false,${at})`);
+  assert.eq([res.m, res.l, res.s, res.d], [15, 3, 2, (9 + 10 + 2) * 15]);
+});
+
+test("no shuttle completed: result 0.0; level done: previous level's last shuttle", async h => {
+  h.tx(`${BT}.start(20)`);
+  await h.wait(3000);
+  assert.eq(h.eval(`(function(r){return [r.l,r.s]})(${BT}.stop(false))`), [0, 0]);
+  startAgo(h, 20, timeAt(h, 20, 2, 0) + 1);
+  assert.eq(h.eval(`(function(r){return [r.l,r.s]})(${BT}.stop(false))`), [1, 7]);
+});
+
+test("finishing level 21 ends the test with 21.16", async h => {
+  startAgo(h, 20, timeAt(h, 20, 22, 0) - 3);
+  await h.wait(4000);
+  assert(!h.eval(`${BT}.active()`), "ended");
+  assert.eq([hist(h)[0].l, hist(h)[0].s], [21, 16]);
+});
+
+test("keeps running after load(): cues, HR stats and log carry on", async h => {
+  h.tx(`${BT}.start(20)`);
+  h.tx(`Bangle.emit("HRM",{bpm:120,confidence:90})`);
+  await h.wait(20500);
+  await h.load(); // the clock, as after a long press
+  assert(h.eval(`global.bleepTest&&bleepTest.active()`), "resumed by the boot file");
+  assert.eq(h.eval("HRM_USERS"), { bleeptest: 1 });
+  spyBuzz(h);
+  h.tx(`Bangle.emit("HRM",{bpm:140,confidence:90})`);
+  await h.wait(20000);
+  assert(h.eval("BUZZ.length") >= 2, "cues at the clock");
+  await h.load("bleeptest.app.js");
+  const res = h.eval(`${BT}.stop(false)`);
+  assert.eq(res.max, 140);
+  assert(res.avg > 120 && res.avg < 140, "HR stats from before and after: " + res.avg);
+  const lines = readFile(h, res.f).split("\n").filter(l => /^\d/.test(l));
+  assert(lines.length >= 38 && lines.length <= 46, "a sample a second: " + lines.length);
+  const ts = lines.map(l => +l.split(",")[0]);
+  for (let i = 1; i < ts.length; i++) assert(ts[i] >= ts[i - 1], "in time order");
+});
+
+test("a test that ended while nothing ran is closed on the next load", async h => {
+  startAgo(h, 20, 10);
+  // pretend the watch was off: the saved start is long ago
+  h.tx('(function(s){var st=s.readJSON("bleeptest.state.json");st.start-=2000;s.writeJSON("bleeptest.state.json",st)})(require("Storage"));E.removeAllListeners("kill")');
+  await h.load();
+  assert(!h.eval(`global.bleepTest&&bleepTest.active()`));
+  assert.eq([hist(h)[0].l, hist(h)[0].s], [21, 16]);
+});
+
+test("cancel: no result, log deleted, sensors off", async h => {
+  h.tx(`${BT}.start(20,{gps:true})`);
+  await h.wait(5000);
+  const file = h.eval('require("Storage").readJSON("bleeptest.state.json").file');
+  h.tx(`${BT}.cancel()`);
+  assert(!h.eval(`${BT}.active()`));
+  assert.eq(hist(h), []);
+  assert.eq(h.eval(`require("Storage").list(/^bleeptest\\.\\d+\\.csv/)`), [], "log erased: " + file);
+  assert.eq(h.eval('require("Storage").read("bleeptest.state.json")===undefined'), true);
+  assert.eq([h.eval("HRM_USERS"), h.eval("GPS_USERS")], [{}, {}]);
+});
+
+test("level boundary: an exact sample when each level starts", async h => {
+  startAgo(h, 20, 60);
+  await h.wait(5000);
+  const f = h.eval(`${BT}.stop(false)`).f;
+  const row = readFile(h, f).split("\n").find(l => l.startsWith("63.0,"));
+  assert(row, "a sample at 63.0 s");
+  assert.eq(row.split(",").slice(3, 6), ["2", "0", "140.0"]);
+});
+
+test("GPS: logs speed and position, off again after", async h => {
+  h.tx(`${BT}.start(20,{gps:true})`);
+  assert.eq(h.eval("GPS_USERS"), { bleeptest: 1 });
+  await h.wait(2000);
+  h.tx(`Bangle.emit("GPS",{fix:1,speed:8.3,lat:51.5,lon:-0.12})`);
+  await h.wait(1000);
+  assert.eq(h.eval(`${BT}.status().gpsSpeed`), 8.3);
+  h.tx(`Bangle.emit("GPS",{fix:0,speed:NaN,lat:NaN,lon:NaN})`);
+  await h.wait(1000);
+  const f = h.eval(`${BT}.stop(false)`).f;
+  assert.eq(h.eval("GPS_USERS"), {});
+  const rows = readFile(h, f).split("\n").filter(l => /^\d/.test(l)).map(l => l.split(","));
+  assert(rows.every(r => r.length == 9), "GPS columns on every row");
+  assert(rows.some(r => r[6] == "8.3" && r[7] == "51.500000" && r[8] == "-0.120000"), "a fix");
+  assert(rows.some(r => r[6] == "" && r[7] == ""), "no fix leaves them empty");
+});

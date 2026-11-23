@@ -1,4 +1,4 @@
-// Bleep Test - multistage shuttle run (20m or 15m) for Bangle.js
+// Bleep Test - multistage shuttle run (20m or 15m) for Bangle.js 2
 // The test itself runs in the "bleeptest" module (lib.js), which the boot file
 // resumes on every app load, so it carries on if you go back to the clock.
 //
@@ -8,9 +8,8 @@
 var storage = require("Storage");
 var bt = global.bleepTest = require("bleeptest");
 var SETTINGS = "bleeptest.settings.json";
-var HISTORY = "bleep.json";
+var HISTORY = "bleeptest.json";
 var COUNTDOWN = 5;
-var BTN_MENU = process.env.HWVERSION == 1 ? BTN2 : BTN1;
 var COURSES = [20, 15];
 
 var settings = storage.readJSON(SETTINGS, 1) || {};
@@ -68,7 +67,7 @@ function setScreen(name, opts) {
     // released: only a short press counts (a long hold goes to the clock)
     if (down !== undefined && e.time - down < 1) (opts.btn || showMenu)();
     down = undefined;
-  }, BTN_MENU, { edge: "both", repeat: true, debounce: 25 });
+  }, BTN1, { edge: "both", repeat: true, debounce: 25 });
   Bangle.setUI({
     mode: "custom",
     touch: opts.touch,

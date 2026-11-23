@@ -1,0 +1,116 @@
+name: Install page
+# Publishes a Bangle.js App Loader with Bleep Test on it to GitHub Pages,
+# so https://cbishopvelti.github.io/bleep/ always installs the latest main,
+# plus a preview loader for every open pull request at .../bleeptest/pr-<N>/.
+# A Pages deployment replaces the whole site, so every run builds main and
+# all the open previews together.
+# Needs Settings > Pages > Source set to "GitHub Actions".
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 1" # weekly, to pick up App Loader updates
+  workflow_dispatch:
+  # Rebuild when a PR opens, gets new commits or closes. pull_request_target
+  # runs this file as it is on main, on main's ref, so the github-pages
+  # environment allows the deploy. The PR's files are only copied onto the
+  # page, never run, and PRs from forks get no preview.
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, closed]
+  # Test changes to the build itself (build only, no deploy).
+  pull_request:
+    paths:
+      - tools/build-loader.sh
+      - tools/build-previews.sh
+      - .github/workflows/pages.yml
+      - metadata.json
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  pull-requests: read
+concurrency:
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: true
+jobs:
+  build:
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      previews: ${{ steps.previews.outputs.list }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: the commit count is the build number
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sh tools/build-loader.sh _site
+      - name: Check the loader lists Bleep Test
+        run: node -e 'const a=require("./_site/apps.json");if(!a.some(x=>x.id==="bleeptest"))process.exit(1)'
+      - name: Add previews of open pull requests
+        id: previews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sh tools/build-previews.sh _site
+          echo "list=$(node -e 'process.stdout.write(JSON.stringify(require("./_site/previews.json")))')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+  # Keeps one comment on each previewed PR with its install link and version,
+  # and marks it removed once the PR closes.
+  comment:
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          PREVIEWS: ${{ needs.build.outputs.previews }}
+          PAGE_URL: ${{ needs.deploy.outputs.page_url }}
+        with:
+          script: |
+            const marker = "<!-- bleep-preview -->";
+            const base = process.env.PAGE_URL.replace(/\/?$/, "/");
+            const {owner, repo} = context.repo;
+            async function upsert(number, body) {
+              const comments = await github.paginate(github.rest.issues.listComments,
+                {owner, repo, issue_number: number, per_page: 100});
+              const old = comments.find(c => c.user.type === "Bot" && c.body.includes(marker));
+              if (old && old.body === body) return;
+              if (old) await github.rest.issues.updateComment({owner, repo, comment_id: old.id, body});
+              else await github.rest.issues.createComment({owner, repo, issue_number: number, body});
+            }
+            for (const p of JSON.parse(process.env.PREVIEWS || "[]")) {
+              const url = base + p.path;
+              await upsert(p.number, marker + "\n" +
+                `**Install preview:** ${url}\n\n` +
+                `Open it in Chrome or Edge, press Connect and install Bleep Test ` +
+                `**${p.version}** (commit ${p.sha.slice(0, 7)}) on the watch. ` +
+                `It updates on every push to this PR and goes away when the PR closes. ` +
+                `To go back, install from the main page: ${base}`);
+            }
+            const pr = context.payload.pull_request;
+            if (context.eventName === "pull_request_target" && pr && pr.state === "closed") {
+              const comments = await github.paginate(github.rest.issues.listComments,
+                {owner, repo, issue_number: pr.number, per_page: 100});
+              if (comments.some(c => c.user.type === "Bot" && c.body.includes(marker)))
+                await upsert(pr.number, marker + "\n" +
+                  `Install preview removed now that this PR is closed. ` +
+                  `Main install page: ${base}`);
+            }

@@ -56,8 +56,8 @@ function render(hist, files) {
 function load() {
   listEl.innerHTML = "<p>Loading...</p>";
   Util.showModal("Loading...");
-  Puck.eval('require("Storage").readJSON("bleep.json",1)||[]', function(hist) {
-    Puck.eval('require("Storage").list(/^bleep\\.\\d+\\.csv\\x01$/).map(function(f){return f.slice(0,-1)})', function(files) {
+  Puck.eval('require("Storage").readJSON("bleeptest.json",1)||[]', function(hist) {
+    Puck.eval('require("Storage").list(/^bleeptest\\.\\d+\\.csv\\x01$/).map(function(f){return f.slice(0,-1)})', function(files) {
       Util.hideModal();
       render(hist || [], files || []);
     });
@@ -87,7 +87,7 @@ function erase(file) {
   if (!confirm("Delete " + file + " from the watch?")) return;
   Util.showModal("Deleting...");
   Util.eraseStorageFile(file, function() {
-    Puck.eval('(function(){var s=require("Storage");var h=s.readJSON("bleep.json",1)||[];s.writeJSON("bleep.json",h.filter(function(x){return x.f!=' + JSON.stringify(file) + '}));return 1})()', function() {
+    Puck.eval('(function(){var s=require("Storage");var h=s.readJSON("bleeptest.json",1)||[];s.writeJSON("bleeptest.json",h.filter(function(x){return x.f!=' + JSON.stringify(file) + '}));return 1})()', function() {
       Util.hideModal();
       load();
     });

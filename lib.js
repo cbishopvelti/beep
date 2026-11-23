@@ -5,7 +5,7 @@
 
 var S = require("Storage");
 var STATE = "bleeptest.state.json";
-var HISTORY = "bleep.json";
+var HISTORY = "bleeptest.json";
 
 /*TABLES_START*/
 // Speeds are the same for every course length: 8.0, 9.0, then +0.5 km/h per level.
@@ -53,12 +53,10 @@ var hr = { bpm: 0, conf: 0 };
 var gps = { speed: NaN, lat: NaN, lon: NaN }; // speed km/h, NaN = no fix
 var tBeep, tLog;
 
-var HAS_BEEPER = process.env.HWVERSION == 1;
 function cue(n, len) {
   var p = Promise.resolve();
   for (var i = 0; i < n; i++) {
     p = p.then(function () {
-      if (HAS_BEEPER) Bangle.beep(len, 2500);
       return Bangle.buzz(len, 1);
     });
     if (i < n - 1) p = p.then(function () { return new Promise(function (r) { setTimeout(r, 120); }); });
@@ -149,12 +147,15 @@ function halt() {
   }
 }
 
-// Start a test on an m metre course now. opts.gps: also record GPS speed/position
+// Start a test on an m metre course. opts.gps: also record GPS speed/position.
+// opts.start: start time (ms, as Date.now()), to begin partway through a test
+// when testing on the watch, e.g. start(20, {start: Date.now() - 400000})
 exports.start = function (m, opts) {
   if (st) return;
+  opts = opts || {};
   m = TESTS[m] ? m : 20;
-  var start = getTime();
-  st = { start: start, m: m, file: "bleep." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0, gps: !!(opts && opts.gps) };
+  var start = opts.start ? opts.start / 1000 : getTime();
+  st = { start: start, m: m, file: "bleeptest." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0, gps: !!opts.gps };
   S.writeJSON(STATE, st);
   log = S.open(st.file, "w");
   log.write("start," + Math.round(start * 1000) + "," + new Date().getTimezoneOffset() + "," + m + "\n");

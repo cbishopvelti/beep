@@ -1,4 +1,4 @@
-// Parses bleep.<time>.csv logs written by the Bleep Test watch app and
+// Parses bleeptest.<time>.csv logs written by the Bleep Test watch app and
 // converts them to TCX (Garmin Training Center XML) or plain CSV.
 // Used by interface.html; also loadable from Node for testing.
 (function (root) {

@@ -1,10 +1,10 @@
 // Bleep Test widget: shows level.shuttle and heart rate while a test is running
 (function () {
   var timer;
-  function active() { return global.bleepTest && bleepTest.active(); }
+  function active() { return global.bleepTest && global.bleepTest.active(); }
   function draw() {
     if (!active()) return;
-    var s = bleepTest.status(), x = this.x, y = this.y;
+    var s = global.bleepTest.status(), x = this.x, y = this.y;
     g.reset().clearRect(x, y, x + 29, y + 23);
     g.setFont("6x8").setFontAlign(0, -1);
     g.drawString(s.level + "." + (s.shuttle + 1), x + 15, y + 3);
