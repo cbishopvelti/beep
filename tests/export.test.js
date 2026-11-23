@@ -51,6 +51,23 @@ test("TCX: one lap per level, exact lap times and distances, HR", async h => {
   assert(!tcx.includes("<Position>") && !tcx.includes("ns3:Speed>"), "no GPS when off");
 });
 
+test("Stop & save from the menu later: nothing after the button press", async h => {
+  startAgo(h, 20, 55); // 8 s before level 2
+  await h.wait(2000);
+  const at = h.eval(`${BT}.status().t`);
+  await h.wait(30000); // the menu is open, still logging, into level 2
+  const res = h.eval(`${BT}.stop(false,${at})`);
+  const log = BeepLog.parse(readFile(h, res.f));
+  assert(log.samples.every(s => s.t <= at), "no samples after the press");
+  for (let i = 1; i < log.samples.length; i++) assert(log.samples[i].t >= log.samples[i - 1].t, "in time order");
+  const tcx = BeepLog.toTCX(log);
+  assert.eq([...tcx.matchAll(/<Notes>Level (\d+)/g)].map(m => +m[1]), [1], "one lap, level 1");
+  const lap = /<TotalTimeSeconds>([\d.]+)<\/TotalTimeSeconds>\s*<DistanceMeters>([\d.]+)/.exec(tcx);
+  assert.near(+lap[1], at, 0.1, "lap time");
+  assert(+lap[2] > 120 && +lap[2] < 140, "lap distance " + lap[2]);
+  assert.eq(BeepLog.toCSV(log).trim().split("\n").length, log.samples.length + 1);
+});
+
 test("TCX and CSV with GPS: position and speed", async h => {
   const { log } = await runTest(h, 15, { gps: true });
   const tcx = BeepLog.toTCX(log);

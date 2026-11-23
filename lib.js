@@ -52,6 +52,9 @@ var log;         // StorageFile
 var hr = { bpm: 0, conf: 0 };
 var gps = { speed: NaN, lat: NaN, lon: NaN }; // speed km/h, NaN = no fix
 var tBeep, tLog;
+// If nothing ran the test for longer than this (the watch was off, or it
+// crashed), it ended when the log did, not when it was found again.
+var GAP = 20; // seconds
 
 // Vibration cues: one short buzz per shuttle, two at each new level
 var SHUTTLE_BUZZ = 180, LEVEL_BUZZ = 150; // ms
@@ -84,8 +87,14 @@ function distanceAt(p, t) {
   return (p.total + f) * st.m;
 }
 
+// Write to the log. A full storage must not stop the cues or leave the test
+// stuck, so a failed write is skipped.
+function write(s) {
+  try { log.write(s); } catch (e) { }
+}
+
 function writeSample(t, p) {
-  log.write(t.toFixed(1) + "," + Math.round(hr.bpm) + "," + Math.round(hr.conf) + "," +
+  write(t.toFixed(1) + "," + Math.round(hr.bpm) + "," + Math.round(hr.conf) + "," +
     p.level + "," + p.shuttle + "," + distanceAt(p, t).toFixed(1) +
     (st.gps ? "," + fmtNum(gps.speed, 1) + "," + fmtNum(gps.lat, 6) + "," + fmtNum(gps.lon, 6) : "") + "\n");
 }
@@ -97,6 +106,21 @@ function logTick() {
     if (hr.bpm > st.hrMax) st.hrMax = hr.bpm;
   }
   writeSample(t, position(st.m, t));
+}
+
+// The phone (Gadgetbridge) and the App Loader set the watch's clock with
+// setTime() when they connect, which would make the test jump. Keep the time
+// since the start as it was by moving the start too, and note it in the log
+// so the export uses the corrected clock. (Timers aren't affected: they fire
+// the same time after they were set whatever the clock says.)
+var setTime0;
+function onSetTime(t) {
+  var d = t - getTime();
+  setTime0(t);
+  if (!st || !d) return;
+  st.start += d;
+  write("clock," + d.toFixed(3) + "\n");
+  try { S.writeJSON(STATE, st); } catch (e) { }
 }
 
 function emit(type, data) { Bangle.emit("beeptest", { type: type, data: data }); }
@@ -134,6 +158,7 @@ function run() {
     Bangle.setGPSPower(1, "beeptest");
   }
   log = S.open(st.file, "a");
+  if (!setTime0) { setTime0 = global.setTime; global.setTime = onSetTime; }
   schedule();
   tLog = setInterval(logTick, 1000);
   updateWidget();
@@ -143,6 +168,7 @@ function halt() {
   if (tBeep) clearTimeout(tBeep);
   if (tLog) clearInterval(tLog);
   tBeep = tLog = undefined;
+  if (setTime0) { global.setTime = setTime0; setTime0 = undefined; }
   Bangle.removeListener("HRM", onHRM);
   Bangle.setHRMPower(0, "beeptest");
   if (st && st.gps) {
@@ -162,7 +188,7 @@ exports.start = function (m, opts) {
   st = { start: start, m: m, file: "beeptest." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0, gps: !!opts.gps };
   S.writeJSON(STATE, st);
   log = S.open(st.file, "w");
-  log.write("start," + Math.round(start * 1000) + "," + new Date().getTimezoneOffset() + "," + m + "\n");
+  write("start," + Math.round(start * 1000) + "," + new Date().getTimezoneOffset() + "," + m + "\n");
   cueLevel();
   run();
   logTick();
@@ -173,15 +199,33 @@ exports.resume = function () {
   if (st) return true;
   st = S.readJSON(STATE, 1);
   if (!st || !st.start) { st = undefined; return false; }
-  // if the test would have ended while nothing was running, close it off
-  if (position(st.m, now()).done) {
+  var t = now(), last = t;
+  // An app change saves the time it happened (on "kill"). Without a recent
+  // one, the watch was off or crashed: see when the log stopped.
+  if (!(t - st.alive < GAP)) last = lastLogTime(st.file);
+  if (t - last > GAP || position(st.m, t).done) {
+    // nothing ran it for a while, or it would have ended: close it off
     log = S.open(st.file, "a");
-    stop(true);
+    if (t - last > GAP) stop(false, last);
+    else stop(true);
     return false;
   }
   run();
   return true;
 };
+
+// Time (s since the start) of the last sample in a test's log. With none
+// (nothing could be written), now: carry on as before.
+function lastLogTime(file) {
+  var f = S.open(file, "r"), tail = "", s;
+  while ((s = f.read(1024)) !== undefined) tail = (tail + s).slice(-200);
+  var lines = tail.split("\n");
+  for (var i = lines.length - 1; i >= 0; i--) {
+    var v = parseFloat(lines[i]);
+    if (v >= 0) return v;
+  }
+  return now();
+}
 
 // Stop the test. at: seconds since start when the runner dropped out (default now).
 // (Espruino doesn't hoist functions in modules, so exports go after the definition.)
@@ -198,14 +242,14 @@ function stop(completed, at) {
     d: p.total * st.m, dur: Math.round(t),
     max: st.hrMax, avg: st.hrN ? Math.round(st.hrSum / st.hrN) : 0, f: st.file
   };
-  log.write("end," + t.toFixed(1) + "," + res.l + "," + res.s + "," + res.d + "," + res.max + "," + res.avg + "\n");
+  write("end," + t.toFixed(1) + "," + res.l + "," + res.s + "," + res.d + "," + res.max + "," + res.avg + "\n");
   log = undefined;
   var hist = S.readJSON(HISTORY, 1) || [];
   hist.unshift(res);
   while (hist.length > 30) hist.pop();
-  S.writeJSON(HISTORY, hist);
-  S.erase(STATE);
   st = undefined;
+  try { S.writeJSON(HISTORY, hist); } catch (e) { }
+  S.erase(STATE);
   cue(2, 350);
   updateWidget();
   emit("done", res);
@@ -247,5 +291,7 @@ exports.shuttleTime = shuttleTime;
 
 // keep the heart rate stats when the running app is replaced
 E.on("kill", function () {
-  if (st) S.writeJSON(STATE, st);
+  if (!st) return;
+  st.alive = now();
+  try { S.writeJSON(STATE, st); } catch (e) { }
 });

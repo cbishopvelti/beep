@@ -99,6 +99,21 @@ test("Stop & save counts from the button press, not the menu choice", async h =>
   assert.eq([r.l, r.s], [5, 3]);
 });
 
+test("Cancel, then No: Stop & save still counts from the first press", async h => {
+  startAgo(h, 20, timeAt(h, 20, 5, 3) + 1);
+  await open(h);
+  h.tx("global.PROMPT=null;E.showPrompt=function(q){PROMPT=q;return Promise.resolve(false)}");
+  press(h, 150);
+  await h.wait(12000);
+  h.tx('MENU["Cancel test"]()');
+  await h.wait(100);
+  assert.eq(menuItems(h), ["Back to test", "Stop & save", "Cancel test"]);
+  await h.wait(12000);
+  h.tx('MENU["Stop & save"]()');
+  const r = h.eval('require("Storage").readJSON("beeptest.json")[0]');
+  assert.eq([r.l, r.s], [5, 3]);
+});
+
 test("Cancel test asks first, then discards the run", async h => {
   startAgo(h, 20, 40);
   await open(h);
@@ -155,6 +170,27 @@ test("Results lists past tests", async h => {
   const items = menuItems(h);
   assert.eq(items.length, 1);
   assert(/ 20m 3\.1$/.test(items[0]), items[0]);
+});
+
+test("Results: two tests the same day with the same result are both listed", async h => {
+  for (const ago of [600, 300]) {
+    startAgo(h, 20, ago);
+    h.tx(`${BT}.stop(false,2)`); // 0.0 both times
+  }
+  await open(h);
+  press(h, 150);
+  h.tx("MENU.Results()");
+  assert.eq(menuItems(h).length, 2, JSON.stringify(menuItems(h)));
+});
+
+test("the countdown has no button hint", async h => {
+  await open(h);
+  spyDraw(h);
+  tap(h);
+  await h.wait(1100);
+  const drawn = h.eval("DRAWN");
+  assert(drawn.includes("Get ready 20m"), "countdown: " + drawn);
+  assert(!drawn.some(s => /BTN/.test(s)), "no BTN hint: " + drawn);
 });
 
 test("the watch locks as usual during a test, and redraws less when locked", async h => {

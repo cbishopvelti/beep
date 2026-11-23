@@ -3,6 +3,7 @@
    Run: node tests/run.js tests/engine.test.js -v */
 const { test, assert } = require("./harness");
 const { BT, timeAt, startAgo, spyBuzz, readFile } = require("./helpers");
+const BeepLog = require("../beeplog.js");
 
 const hist = h => h.eval('require("Storage").readJSON("beeptest.json",1)||[]');
 
@@ -92,6 +93,7 @@ test("keeps running after load(): cues, HR stats and log carry on", async h => {
   await h.load(); // the clock, as after a long press
   assert(h.eval(`global.beepTest&&beepTest.active()`), "resumed by the boot file");
   assert.eq(h.eval("HRM_USERS"), { beeptest: 1 });
+  assert(!/native/.test(h.eval("setTime.toString()")), "watching setTime again");
   spyBuzz(h);
   h.tx(`Bangle.emit("HRM",{bpm:140,confidence:90})`);
   await h.wait(20000);
@@ -106,13 +108,62 @@ test("keeps running after load(): cues, HR stats and log carry on", async h => {
   for (let i = 1; i < ts.length; i++) assert(ts[i] >= ts[i - 1], "in time order");
 });
 
-test("a test that ended while nothing ran is closed on the next load", async h => {
-  startAgo(h, 20, 10);
-  // pretend the watch was off: the saved start is long ago
-  h.tx('(function(s){var st=s.readJSON("beeptest.state.json");st.start-=2000;s.writeJSON("beeptest.state.json",st)})(require("Storage"));E.removeAllListeners("kill")');
+/* Pretend the watch was off (or crashed) for `secs`: no "kill" saved the
+   state, and the saved start moves back so that much time has passed */
+function switchedOff(h, secs) {
+  h.tx(`E.removeAllListeners("kill");(function(s){var st=s.readJSON("beeptest.state.json");st.start-=${secs};s.writeJSON("beeptest.state.json",st)})(require("Storage"))`);
+}
+
+test("watch off mid-test: closed where the log stops, not as a full 21.16", async h => {
+  startAgo(h, 20, timeAt(h, 20, 2, 3) + 1); // shuttle 4 of level 2
+  await h.wait(1500);
+  switchedOff(h, 2000); // long enough for the whole test to have ended
   await h.load();
   assert(!h.eval(`global.beepTest&&beepTest.active()`));
-  assert.eq([hist(h)[0].l, hist(h)[0].s], [21, 16]);
+  assert.eq([hist(h)[0].l, hist(h)[0].s], [2, 3]);
+});
+
+test("watch off for a minute mid-test: closed, no buzzing on from a later level", async h => {
+  startAgo(h, 20, 30);
+  await h.wait(1500);
+  switchedOff(h, 60);
+  spyBuzz(h);
+  await h.load();
+  assert(!h.eval(`global.beepTest&&beepTest.active()`), "not resumed");
+  assert.eq([hist(h)[0].l, hist(h)[0].s], [1, 3]);
+});
+
+test("a quick restart mid-test (no kill) carries on", async h => {
+  startAgo(h, 20, 30);
+  await h.wait(1500);
+  switchedOff(h, 5);
+  await h.load();
+  assert(h.eval(`global.beepTest&&beepTest.active()`), "resumed");
+  assert.eq(hist(h), []);
+});
+
+test("app changes late in a test carry on (no log reading)", async h => {
+  startAgo(h, 20, 300);
+  await h.load(); // saves the time on "kill"
+  h.tx('(function(S,o){S.open=function(n,m){if(m=="r")global.READ=n;return o.apply(S,arguments)}})(require("Storage"),require("Storage").open)');
+  await h.load();
+  assert(h.eval(`global.beepTest&&beepTest.active()`));
+  assert.eq(h.eval("global.READ"), null, "didn't read the log");
+});
+
+test("a full storage doesn't stop the cues or leave the test stuck", async h => {
+  // every write to the log fails from the start
+  h.tx('(function(S,o){S.open=function(n,m){var f=o.apply(S,arguments);if(m!="r")f.write=function(){throw new Error("full")};return f}})(require("Storage"),require("Storage").open)');
+  h.tx(`${BT}.start(20)`);
+  spyBuzz(h);
+  await h.wait(70000);
+  assert.eq(h.eval(`${BT}.status().level`), 2);
+  assert(h.eval("BUZZ.length") >= 8, "cues: " + h.eval("BUZZ.length"));
+  const res = h.eval(`${BT}.stop(false)`);
+  assert.eq([res.l, res.s], [1, 7]);
+  assert(!h.eval(`${BT}.active()`));
+  assert.eq(h.eval('require("Storage").read("beeptest.state.json")===undefined'), true);
+  h.errors.length = 0; // the logged "full" errors are expected
 });
 
 test("cancel: no result, log deleted, sensors off", async h => {
@@ -134,6 +185,34 @@ test("level boundary: an exact sample when each level starts", async h => {
   const row = readFile(h, f).split("\n").find(l => l.startsWith("63.0,"));
   assert(row, "a sample at 63.0 s");
   assert.eq(row.split(",").slice(3, 6), ["2", "0", "140.0"]);
+});
+
+test("the phone setting the clock mid-test doesn't move the test", async h => {
+  // The emulator's clock can't be set, so stand in for the firmware: getTime()
+  // gains OFF, and setTime() changes OFF. Timers carry on unaffected, as on the watch.
+  h.tx('global.OFF=0;(function(g){global.getTime=function(){return g()+OFF}})(getTime);global.setTime=function(t){OFF+=t-getTime()}');
+  const fake = h.eval("setTime.toString()");
+  h.tx(`${BT}.start(20)`);
+  assert(h.eval("setTime.toString()") != fake, "setTime watched during the test");
+  spyBuzz(h);
+  await h.wait(20000);
+  h.tx("setTime(getTime()+3600)"); // the watch was an hour slow
+  assert.near(h.eval(`${BT}.status().t`), 20, 0.1, "elapsed time after the clock moved on");
+  await h.wait(20000);
+  h.tx("setTime(getTime()-1.5)");
+  await h.wait(24000);
+  assert.near(h.eval(`${BT}.status().t`), 64, 0.1, "elapsed time");
+  assert.eq(h.eval(`${BT}.status().level`), 2);
+  assert.eq(h.eval("BUZZ.filter(function(b){return b[1]==180}).length"), 6, "every shuttle cued once");
+  const st = h.eval('require("Storage").readJSON("beeptest.state.json")');
+  const res = h.eval(`${BT}.stop(false)`);
+  assert.eq([res.l, res.s], [1, 7]);
+  assert.eq(h.eval("setTime.toString()"), fake, "setTime put back");
+  const log = BeepLog.parse(readFile(h, res.f));
+  assert.near(log.startMs, res.t, 1, "export uses the corrected start");
+  assert.near(log.startMs / 1000, st.start, 0.01);
+  const ts = log.samples.map(s => s.t);
+  for (let i = 1; i < ts.length; i++) assert(ts[i] - ts[i - 1] < 1.5 && ts[i] >= ts[i - 1], "no jump in the log at " + ts[i]);
 });
 
 test("GPS: logs speed and position, off again after", async h => {
