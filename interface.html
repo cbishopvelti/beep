@@ -25,7 +25,8 @@ function fmtDate(ms) {
   return new Date(ms).toLocaleString();
 }
 
-function render(hist, files) {
+// running: the log of the test in progress on the watch, if any
+function render(hist, files, running) {
   // Results the watch remembers, plus any logs without a history entry
   var known = {};
   hist.forEach(function(h){ known[h.f] = 1; });
@@ -40,14 +41,16 @@ function render(hist, files) {
   }
   var html = '<table class="table table-striped"><thead><tr><th>Date</th><th>Course</th><th>Result</th><th>Distance</th><th>HR avg / max</th><th></th></tr></thead><tbody>';
   hist.forEach(function(h, i) {
+    var live = h.f == running;
     html += "<tr><td>" + fmtDate(h.t) + "</td>" +
       "<td>" + (h.l !== undefined ? (h.m || 20) + " m" : "") + "</td>" +
-      "<td>" + (h.l !== undefined ? h.l + "." + h.s : "?") + "</td>" +
+      "<td>" + (live ? "In progress" : h.l !== undefined ? h.l + "." + h.s : "?") + "</td>" +
       "<td>" + (h.d !== undefined ? h.d + " m" : "") + "</td>" +
       "<td>" + (h.avg !== undefined ? (h.avg || "-") + " / " + (h.max || "-") : "") + "</td>" +
       '<td><button class="btn btn-primary btn-sm" data-act="tcx" data-f="' + h.f + '">TCX</button> ' +
       '<button class="btn btn-sm" data-act="csv" data-f="' + h.f + '">CSV</button> ' +
-      '<button class="btn btn-error btn-sm" data-act="del" data-f="' + h.f + '">Delete</button></td></tr>';
+      // the watch is still writing to it
+      (live ? '' : '<button class="btn btn-error btn-sm" data-act="del" data-f="' + h.f + '">Delete</button>') + '</td></tr>';
   });
   html += "</tbody></table>";
   listEl.innerHTML = html;
@@ -58,8 +61,10 @@ function load() {
   Util.showModal("Loading...");
   Puck.eval('require("Storage").readJSON("beeptest.json",1)||[]', function(hist) {
     Puck.eval('require("Storage").list(/^beeptest\\.\\d+\\.csv\\x01$/).map(function(f){return f.slice(0,-1)})', function(files) {
-      Util.hideModal();
-      render(hist || [], files || []);
+      Puck.eval('(require("Storage").readJSON("beeptest.state.json",1)||{}).file||""', function(running) {
+        Util.hideModal();
+        render(hist || [], files || [], running);
+      });
     });
   });
 }

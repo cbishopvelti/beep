@@ -74,7 +74,8 @@ level adds 0.5 km/h up to level 21 (18.5 km/h). Each level lasts about a minute,
 * **15 m** follows the FitnessGram 15 m PACER lap counts.
 
 Cue times are worked out from the test start time, so they do not drift, even when you
-switch apps.
+switch apps. If the watch goes flat or restarts during a test, the test is saved as it
+stood when the watch stopped logging, the next time it's on.
 
 ## Heart rate log and export
 
@@ -92,6 +93,9 @@ can be downloaded as:
   Garmin Connect (*Import data*), Runalyze, Intervals.icu, Golden Cheetah, or open it in
   most phone fitness apps. Without GPS speed it shows as an indoor run.
 * **CSV** for spreadsheets.
+
+Both end at the moment you pressed the button to stop. A test that is still running on
+the watch shows as *In progress*: you can download it so far, but not delete it.
 
 There is an option to drop low-confidence HR readings. The wrist HRM struggles with the
 arm movement of hard running; for better data pair a chest strap with the

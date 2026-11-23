@@ -106,13 +106,62 @@ test("keeps running after load(): cues, HR stats and log carry on", async h => {
   for (let i = 1; i < ts.length; i++) assert(ts[i] >= ts[i - 1], "in time order");
 });
 
-test("a test that ended while nothing ran is closed on the next load", async h => {
-  startAgo(h, 20, 10);
-  // pretend the watch was off: the saved start is long ago
-  h.tx('(function(s){var st=s.readJSON("beeptest.state.json");st.start-=2000;s.writeJSON("beeptest.state.json",st)})(require("Storage"));E.removeAllListeners("kill")');
+/* Pretend the watch was off (or crashed) for `secs`: no "kill" saved the
+   state, and the saved start moves back so that much time has passed */
+function switchedOff(h, secs) {
+  h.tx(`E.removeAllListeners("kill");(function(s){var st=s.readJSON("beeptest.state.json");st.start-=${secs};s.writeJSON("beeptest.state.json",st)})(require("Storage"))`);
+}
+
+test("watch off mid-test: closed where the log stops, not as a full 21.16", async h => {
+  startAgo(h, 20, timeAt(h, 20, 2, 3) + 1); // shuttle 4 of level 2
+  await h.wait(1500);
+  switchedOff(h, 2000); // long enough for the whole test to have ended
   await h.load();
   assert(!h.eval(`global.beepTest&&beepTest.active()`));
-  assert.eq([hist(h)[0].l, hist(h)[0].s], [21, 16]);
+  assert.eq([hist(h)[0].l, hist(h)[0].s], [2, 3]);
+});
+
+test("watch off for a minute mid-test: closed, no buzzing on from a later level", async h => {
+  startAgo(h, 20, 30);
+  await h.wait(1500);
+  switchedOff(h, 60);
+  spyBuzz(h);
+  await h.load();
+  assert(!h.eval(`global.beepTest&&beepTest.active()`), "not resumed");
+  assert.eq([hist(h)[0].l, hist(h)[0].s], [1, 3]);
+});
+
+test("a quick restart mid-test (no kill) carries on", async h => {
+  startAgo(h, 20, 30);
+  await h.wait(1500);
+  switchedOff(h, 5);
+  await h.load();
+  assert(h.eval(`global.beepTest&&beepTest.active()`), "resumed");
+  assert.eq(hist(h), []);
+});
+
+test("app changes late in a test carry on (no log reading)", async h => {
+  startAgo(h, 20, 300);
+  await h.load(); // saves the time on "kill"
+  h.tx('(function(S,o){S.open=function(n,m){if(m=="r")global.READ=n;return o.apply(S,arguments)}})(require("Storage"),require("Storage").open)');
+  await h.load();
+  assert(h.eval(`global.beepTest&&beepTest.active()`));
+  assert.eq(h.eval("global.READ"), null, "didn't read the log");
+});
+
+test("a full storage doesn't stop the cues or leave the test stuck", async h => {
+  // every write to the log fails from the start
+  h.tx('(function(S,o){S.open=function(n,m){var f=o.apply(S,arguments);if(m!="r")f.write=function(){throw new Error("full")};return f}})(require("Storage"),require("Storage").open)');
+  h.tx(`${BT}.start(20)`);
+  spyBuzz(h);
+  await h.wait(70000);
+  assert.eq(h.eval(`${BT}.status().level`), 2);
+  assert(h.eval("BUZZ.length") >= 8, "cues: " + h.eval("BUZZ.length"));
+  const res = h.eval(`${BT}.stop(false)`);
+  assert.eq([res.l, res.s], [1, 7]);
+  assert(!h.eval(`${BT}.active()`));
+  assert.eq(h.eval('require("Storage").read("beeptest.state.json")===undefined'), true);
+  h.errors.length = 0; // the logged "full" errors are expected
 });
 
 test("cancel: no result, log deleted, sensors off", async h => {

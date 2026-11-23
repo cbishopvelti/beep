@@ -7,6 +7,7 @@
 
 var storage = require("Storage");
 var bt = global.beepTest = require("beeptest");
+bt.resume(); // in case the boot file didn't run (it usually has already)
 var SETTINGS = "beeptest.settings.json";
 var HISTORY = "beeptest.json";
 var COUNTDOWN = 3;
@@ -85,7 +86,6 @@ function startCountdown() {
     g.reset().clearRect(R);
     g.setFontAlign(0, 0).setFont("6x8", 2).drawString("Get ready " + settings.m + "m", cx, R.y + 20);
     g.setFont("Vector", 60).drawString(n, cx, R.y + R.h / 2 + 5);
-    g.setFont("6x8").drawString("BTN: cancel", cx, R.y2 - 8);
     if (n <= 0) {
       bt.start(settings.m, { gps: settings.gps });
       Bangle.setHRMPower(0, "beeptest.app");
@@ -142,12 +142,13 @@ Bangle.on("beeptest", function (e) {
 });
 
 // ---------- menu ----------
-function showMenu() {
+// stopAt: when the menu was first opened, if it is being shown again
+function showMenu(stopAt) {
   view = "menu";
   var m;
   if (bt.active()) {
     // the moment the button was pressed counts as dropping out
-    var stopAt = bt.status().t;
+    if (typeof stopAt != "number") stopAt = bt.status().t;
     m = {
       "": { title: "Test running", back: showRun },
       "Back to test": showRun,
@@ -158,7 +159,7 @@ function showMenu() {
       "Cancel test": function () {
         E.showPrompt("Cancel without saving?").then(function (ok) {
           if (ok) { bt.cancel(); showReady(); }
-          else showMenu();
+          else showMenu(stopAt);
         });
       }
     };
@@ -204,6 +205,7 @@ function showHistory() {
   hist.forEach(function (res, i) {
     var d = new Date(res.t);
     var label = d.getDate() + "/" + (d.getMonth() + 1) + " " + (res.m || 20) + "m " + res.l + "." + res.s;
+    while (m[label]) label += " "; // same day, course and result: keep both
     m[label] = function () { showEntry(i); };
   });
   E.showMenu(m);

@@ -20,6 +20,13 @@
           gpsSpeed: num(p[6]), lat: num(p[7]), lon: num(p[8]) });
       }
     });
+    // The watch keeps logging while its menu is open, then writes the last
+    // sample at the moment the button was pressed: leave out what came after
+    // it, and keep the samples in time order.
+    if (out.end) out.samples = out.samples.filter(function (s) { return s.t <= out.end.t; });
+    out.samples = out.samples.map(function (s, i) { return [s, i]; })
+      .sort(function (a, b) { return a[0].t - b[0].t || a[1] - b[1]; })
+      .map(function (a) { return a[0]; });
     return out;
   }
 
