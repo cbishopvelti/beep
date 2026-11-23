@@ -5,13 +5,14 @@
   "use strict";
 
   function parse(text) {
-    var out = { startMs: 0, tzOffset: 0, samples: [], end: null };
+    var out = { startMs: 0, tzOffset: 0, course: 20, samples: [], end: null };
     text.split(/\r?\n/).forEach(function (line) {
       if (!line) return;
       var p = line.split(",");
       if (p[0] == "start") {
         out.startMs = +p[1];
         out.tzOffset = +p[2] || 0;
+        out.course = +p[3] || 20;
       } else if (p[0] == "end") {
         out.end = { t: +p[1], level: +p[2], shuttle: +p[3], dist: +p[4], vo2: +p[5], maxHr: +p[6], avgHr: +p[7] };
       } else if (p.length >= 6 && !isNaN(+p[0])) {
@@ -26,9 +27,10 @@
   function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
   function resultText(log) {
-    if (!log.end) return "Bleep test (incomplete log)";
-    return "Bleep test result " + log.end.level + "." + log.end.shuttle +
-      ", " + log.end.dist + " m, est. VO2max " + log.end.vo2 + " ml/kg/min";
+    var name = log.course + "m bleep test";
+    if (!log.end) return name + " (incomplete log)";
+    return name + " result " + log.end.level + "." + log.end.shuttle + ", " + log.end.dist + " m" +
+      (log.end.vo2 ? ", est. VO2max " + log.end.vo2 + " ml/kg/min" : "");
   }
 
   // opts.minConfidence: drop HR samples below this confidence (0-100)
@@ -112,7 +114,7 @@
 
   function fileBase(log) {
     var d = new Date(log.startMs - log.tzOffset * 60000); // local time for the name
-    return "bleeptest-" + d.toISOString().substr(0, 16).replace(/[:T]/g, "-");
+    return "bleeptest-" + log.course + "m-" + d.toISOString().substr(0, 16).replace(/[:T]/g, "-");
   }
 
   var api = { parse: parse, toTCX: toTCX, toCSV: toCSV, resultText: resultText, fileBase: fileBase };

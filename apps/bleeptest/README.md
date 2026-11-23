@@ -5,41 +5,66 @@ with heart rate logging you can export to your phone or fitness service.
 
 ## Usage
 
-1. Mark out two lines 20 m apart.
-2. Open **Bleep Test** and choose **Start test**. You get a 5 second countdown
-   (press the button to cancel).
+1. Mark out two lines 20 m, 15 m or 10 m apart.
+2. Open **Bleep Test**. **Press the button** to open the menu, pick the **Course**
+   (20m, 15m or 10m; it is remembered), then choose **Start test**, or just tap the
+   screen to start. You get a 5 second countdown (press the button to cancel).
 3. Run to the other line before each cue:
    * **1 buzz**: end of a shuttle, turn and go.
    * **3 buzzes**: new level, the pace gets faster.
-4. When you can no longer reach the line in time, **press the button**. The test stops
-   and your result is shown as `level.shuttle` (the last shuttle you completed),
-   along with total distance, an estimated VO2max and average / max heart rate.
-5. Past results are under **Results** on the watch, where you can also delete them.
+4. When you can no longer reach the line in time, **press the button** and choose
+   **Stop test**. The moment you pressed the button is what counts, so take your time
+   in the menu. Your result is shown as `level.shuttle` (the last shuttle you completed),
+   with total distance, average / max heart rate and, for the 20 m test, an estimated VO2max.
+5. Past results are under **Results** in the menu, where you can also delete them.
+
+### Buttons
+
+| | Short press | Long press |
+|---|---|---|
+| Before a test | Menu (start, course, results) | Back to the clock |
+| During a test | Menu (back to test, stop) | Back to the clock, **test keeps running** |
+
+While a test is running in the background, cues carry on and a **widget** on the clock
+face shows the current `level.shuttle` and your heart rate. Open the app again to see
+the full screen or to stop the test.
 
 Bangle.js 2 has no speaker, so cues are vibrations. On Bangle.js 1 the piezo
-beeper sounds as well.
+beeper sounds as well, and the middle button opens the menu.
 
-The screen stays on and unlocked for the whole test so a press of the button always
-stops it. Your normal timeout settings are restored afterwards.
+While the app is open during a test, the screen stays on and unlocked. Your normal
+timeout settings are restored afterwards.
 
-## Timings
+## Courses and timings
 
-Standard 20 m shuttle run table: level 1 is 8.0 km/h, level 2 is 9.0 km/h, then each
-level adds 0.5 km/h up to level 21 (18.5 km/h). Each level lasts about a minute:
+Every course uses the same speeds: level 1 is 8.0 km/h, level 2 is 9.0 km/h, then each
+level adds 0.5 km/h up to level 21 (18.5 km/h). Each level lasts about a minute, so the
+shorter courses have more shuttles per level:
 
 | Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Shuttles | 7 | 8 | 8 | 9 | 9 | 10 | 10 | 11 | 11 | 11 | 12 | 12 | 13 | 13 | 13 | 14 | 14 | 15 | 15 | 16 | 16 |
+| 20 m | 7 | 8 | 8 | 9 | 9 | 10 | 10 | 11 | 11 | 11 | 12 | 12 | 13 | 13 | 13 | 14 | 14 | 15 | 15 | 16 | 16 |
+| 15 m | 9 | 10 | 11 | 12 | 12 | 13 | 13 | 14 | 14 | 15 | 15 | 16 | 17 | 17 | 18 | 18 | 19 | 19 | 20 | 20 | 21 |
+| 10 m | 14 | 16 | 16 | 18 | 18 | 20 | 20 | 22 | 22 | 22 | 24 | 24 | 26 | 26 | 26 | 28 | 28 | 30 | 30 | 32 | 32 |
 
-Cue times are scheduled from the test start time, so they do not drift.
+* **20 m** is the standard multistage fitness test (Léger / UK bleep test).
+* **15 m** follows the FitnessGram 15 m PACER lap counts.
+* **10 m** has no single standard version, so it doubles the 20 m counts. Every level then
+  lasts exactly as long as in the 20 m test, at the same speed. The extra turns make it
+  harder, so results are not directly comparable with the 20 m test.
 
-VO2max is estimated with `3.46 × (level + shuttle / (0.4325 × level + 7.0048)) + 12.2`
-(Flouris et al., 2005). Treat it as a rough guide.
+Cue times are worked out from the test start time, so they do not drift, even when you
+switch apps.
+
+VO2max is estimated for the 20 m test only, with
+`3.46 × (level + shuttle / (0.4325 × level + 7.0048)) + 12.2` (Flouris et al., 2005).
+Treat it as a rough guide.
 
 ## Heart rate log and export
 
 While the test runs, the watch writes one line a second to a `bleep.<time>.csv` file
-with elapsed time, heart rate, HRM confidence, level, shuttle and distance.
+with elapsed time, heart rate, HRM confidence, level, shuttle and distance. It keeps
+logging while you're on the clock face.
 
 To get it off the watch, connect in the [Bangle.js App Loader](https://banglejs.com/apps/),
 find **Bleep Test** under *My Apps* and click the **download (interface) icon**. Each test

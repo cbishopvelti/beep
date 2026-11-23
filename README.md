@@ -25,6 +25,7 @@ need the App Loader page above to convert them to TCX.
 
 ## Development
 
-`npm test` runs the app against a simulated Bangle.js with a virtual clock (checking the
-level table, cue timing over a full 21-level test, the saved result and the HR log) and
-converts the log to TCX. The generated files land in `test/out/`.
+`npm test` runs the app, engine, boot file and widget against a simulated Bangle.js with a
+virtual clock. It checks the level tables for all three courses, stopping from the menu, a
+test that carries on at the clock face (widget, cues, HR log), a full test without drift,
+and the TCX export. The generated files land in `test/out/`.
