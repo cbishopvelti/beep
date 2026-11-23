@@ -19,8 +19,8 @@ jobs:
       - run: npm run bundle
       - uses: actions/upload-artifact@v4
         with:
-          name: bleeptest-install
-          path: dist/bleeptest-install.js
+          name: beeptest-install
+          path: dist/beeptest-install.js
   store-check:
     # The checks the official app store (espruino/BangleApps) runs on a PR
     runs-on: ubuntu-latest

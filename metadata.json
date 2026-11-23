@@ -1,9 +1,9 @@
 {
-  "id": "bleeptest",
-  "name": "Bleep Test",
-  "shortName": "Bleep Test",
+  "id": "beeptest",
+  "name": "Beep Test",
+  "shortName": "Beep Test",
   "version": "0.01",
-  "description": "Multistage fitness (bleep / beep) test on a 20m or 15m course, with vibration cues, a clock widget while it runs, and heart rate logging you can export as TCX or CSV.",
+  "description": "Multistage fitness (beep / beep) test on a 20m or 15m course, with vibration cues, a clock widget while it runs, and heart rate logging you can export as TCX or CSV.",
   "icon": "app.png",
   "screenshots": [
     { "url": "screenshots/1-start.png" },
@@ -21,16 +21,16 @@
   "interface": "interface.html",
   "allow_emulator": true,
   "storage": [
-    { "name": "bleeptest.app.js", "url": "app.js" },
-    { "name": "bleeptest.img", "url": "app-icon.js", "evaluate": true },
-    { "name": "bleeptest", "url": "lib.js" },
-    { "name": "bleeptest.boot.js", "url": "boot.js" },
-    { "name": "bleeptest.wid.js", "url": "widget.js" }
+    { "name": "beeptest.app.js", "url": "app.js" },
+    { "name": "beeptest.img", "url": "app-icon.js", "evaluate": true },
+    { "name": "beeptest", "url": "lib.js" },
+    { "name": "beeptest.boot.js", "url": "boot.js" },
+    { "name": "beeptest.wid.js", "url": "widget.js" }
   ],
   "data": [
-    { "name": "bleeptest.json" },
-    { "name": "bleeptest.settings.json" },
-    { "name": "bleeptest.state.json" },
-    { "wildcard": "bleeptest.*.csv", "storageFile": true }
+    { "name": "beeptest.json" },
+    { "name": "beeptest.settings.json" },
+    { "name": "beeptest.state.json" },
+    { "wildcard": "beeptest.*.csv", "storageFile": true }
   ]
 }

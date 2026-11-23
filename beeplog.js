@@ -1,4 +1,4 @@
-// Parses bleeptest.<time>.csv logs written by the Bleep Test watch app and
+// Parses beeptest.<time>.csv logs written by the Beep Test watch app and
 // converts them to TCX (Garmin Training Center XML) or plain CSV.
 // Used by interface.html; also loadable from Node for testing.
 (function (root) {
@@ -30,7 +30,7 @@
   function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
   function resultText(log) {
-    var name = log.course + "m bleep test";
+    var name = log.course + "m beep test";
     if (!log.end) return name + " (incomplete log)";
     return name + " result " + log.end.level + "." + log.end.shuttle + ", " + log.end.dist + " m";
   }
@@ -102,7 +102,7 @@
       x.push('   </Lap>');
     });
     x.push('   <Notes>' + esc(resultText(log)) + '</Notes>');
-    x.push('   <Creator xsi:type="Device_t"><Name>Bangle.js Bleep Test</Name><UnitId>0</UnitId><ProductID>0</ProductID>' +
+    x.push('   <Creator xsi:type="Device_t"><Name>Bangle.js Beep Test</Name><UnitId>0</UnitId><ProductID>0</ProductID>' +
       '<Version><VersionMajor>0</VersionMajor><VersionMinor>1</VersionMinor></Version></Creator>');
     x.push('  </Activity>');
     x.push(' </Activities>');
@@ -121,10 +121,10 @@
 
   function fileBase(log) {
     var d = new Date(log.startMs - log.tzOffset * 60000); // local time for the name
-    return "bleeptest-" + log.course + "m-" + d.toISOString().substr(0, 16).replace(/[:T]/g, "-");
+    return "beeptest-" + log.course + "m-" + d.toISOString().substr(0, 16).replace(/[:T]/g, "-");
   }
 
   var api = { parse: parse, toTCX: toTCX, toCSV: toCSV, resultText: resultText, fileBase: fileBase };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-  else root.BleepLog = api;
+  else root.BeepLog = api;
 })(this);

@@ -7,7 +7,7 @@
     </style>
   </head>
   <body>
-    <h4>Bleep Test results</h4>
+    <h4>Beep Test results</h4>
     <p>Download a test's heart rate log as <b>TCX</b> (import into Strava, Garmin Connect,
       Runalyze, Golden Cheetah, etc.) or <b>CSV</b> (spreadsheets).</p>
     <label class="form-checkbox">
@@ -17,7 +17,7 @@
     <div id="list"><p>Loading...</p></div>
 
     <script src="../../core/lib/interface.js"></script>
-    <script src="bleeplog.js"></script>
+    <script src="beeplog.js"></script>
     <script>
 var listEl = document.getElementById("list");
 
@@ -35,7 +35,7 @@ function render(hist, files) {
   hist = hist.filter(function(h){ return files.indexOf(h.f) >= 0; });
   hist.sort(function(a,b){ return b.t - a.t; });
   if (!hist.length) {
-    listEl.innerHTML = "<p>No bleep test logs found on the watch.</p>";
+    listEl.innerHTML = "<p>No beep test logs found on the watch.</p>";
     return;
   }
   var html = '<table class="table table-striped"><thead><tr><th>Date</th><th>Course</th><th>Result</th><th>Distance</th><th>HR avg / max</th><th></th></tr></thead><tbody>';
@@ -56,8 +56,8 @@ function render(hist, files) {
 function load() {
   listEl.innerHTML = "<p>Loading...</p>";
   Util.showModal("Loading...");
-  Puck.eval('require("Storage").readJSON("bleeptest.json",1)||[]', function(hist) {
-    Puck.eval('require("Storage").list(/^bleeptest\\.\\d+\\.csv\\x01$/).map(function(f){return f.slice(0,-1)})', function(files) {
+  Puck.eval('require("Storage").readJSON("beeptest.json",1)||[]', function(hist) {
+    Puck.eval('require("Storage").list(/^beeptest\\.\\d+\\.csv\\x01$/).map(function(f){return f.slice(0,-1)})', function(files) {
       Util.hideModal();
       render(hist || [], files || []);
     });
@@ -69,13 +69,13 @@ function download(file, kind) {
   Util.readStorageFile(file, function(text) {
     Util.hideModal();
     try {
-      var log = BleepLog.parse(text);
-      var base = BleepLog.fileBase(log);
+      var log = BeepLog.parse(text);
+      var base = BeepLog.fileBase(log);
       if (kind == "tcx") {
         var minConf = document.getElementById("lowconf").checked ? 50 : 0;
-        Util.saveFile(base + ".tcx", "application/vnd.garmin.tcx+xml", BleepLog.toTCX(log, { minConfidence: minConf }));
+        Util.saveFile(base + ".tcx", "application/vnd.garmin.tcx+xml", BeepLog.toTCX(log, { minConfidence: minConf }));
       } else {
-        Util.saveFile(base + ".csv", "text/csv", BleepLog.toCSV(log));
+        Util.saveFile(base + ".csv", "text/csv", BeepLog.toCSV(log));
       }
     } catch (e) {
       alert("Could not convert " + file + ": " + e.message);
@@ -87,7 +87,7 @@ function erase(file) {
   if (!confirm("Delete " + file + " from the watch?")) return;
   Util.showModal("Deleting...");
   Util.eraseStorageFile(file, function() {
-    Puck.eval('(function(){var s=require("Storage");var h=s.readJSON("bleeptest.json",1)||[];s.writeJSON("bleeptest.json",h.filter(function(x){return x.f!=' + JSON.stringify(file) + '}));return 1})()', function() {
+    Puck.eval('(function(){var s=require("Storage");var h=s.readJSON("beeptest.json",1)||[];s.writeJSON("beeptest.json",h.filter(function(x){return x.f!=' + JSON.stringify(file) + '}));return 1})()', function() {
       Util.hideModal();
       load();
     });

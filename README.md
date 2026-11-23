@@ -1,6 +1,6 @@
-# Bleep Test
+# Beep Test
 
-The multistage fitness test ("bleep test" / "beep test") on a 20 m or 15 m course
+The multistage fitness test ("beep test") on a 20 m or 15 m course
 for Bangle.js 2, with heart rate logging you can export to your phone or fitness
 service.
 
@@ -12,16 +12,16 @@ results; during a test **Back to test**, **Stop & save** and **Cancel test**.
 
 ## Install
 
-Open [cbishopvelti.github.io/bleep](https://cbishopvelti.github.io/bleep/) in Chrome
-or Edge, press **Connect**, pick the watch and press the install button on Bleep Test.
-It's the normal Bangle.js App Loader with only Bleep Test on it, rebuilt from main on
+Open [cbishopvelti.github.io/beep](https://cbishopvelti.github.io/beep/) in Chrome
+or Edge, press **Connect**, pick the watch and press the install button on Beep Test.
+It's the normal Bangle.js App Loader with only Beep Test on it, rebuilt from main on
 every push. Other ways to install (including trying a pull request before it's
-merged) are in [docs/DEVELOPMENT.md](https://github.com/cbishopvelti/bleep/blob/main/docs/DEVELOPMENT.md).
+merged) are in [docs/DEVELOPMENT.md](https://github.com/cbishopvelti/beep/blob/main/docs/DEVELOPMENT.md).
 
 ## Usage
 
 1. Mark out two lines 20 m or 15 m apart.
-2. Open **Bleep Test**. To change the course, press the button and pick **Course**
+2. Open **Beep Test**. To change the course, press the button and pick **Course**
    (20m or 15m; it is remembered). Tap the screen to start (or choose **Start test**
    in the menu). You get a 5 second countdown (press the button to cancel).
 3. Run to the other line before each cue:
@@ -69,7 +69,7 @@ level adds 0.5 km/h up to level 21 (18.5 km/h). Each level lasts about a minute,
 | 20 m | 7 | 8 | 8 | 9 | 9 | 10 | 10 | 11 | 11 | 11 | 12 | 12 | 13 | 13 | 13 | 14 | 14 | 15 | 15 | 16 | 16 |
 | 15 m | 9 | 10 | 11 | 12 | 12 | 13 | 13 | 14 | 14 | 15 | 15 | 16 | 17 | 17 | 18 | 18 | 19 | 19 | 20 | 20 | 21 |
 
-* **20 m** is the standard multistage fitness test (Léger / UK bleep test).
+* **20 m** is the standard multistage fitness test (Léger / UK beep test).
 * **15 m** follows the FitnessGram 15 m PACER lap counts.
 
 Cue times are worked out from the test start time, so they do not drift, even when you
@@ -77,13 +77,13 @@ switch apps.
 
 ## Heart rate log and export
 
-While the test runs, the watch writes one line a second to a `bleeptest.<time>.csv` file
+While the test runs, the watch writes one line a second to a `beeptest.<time>.csv` file
 with elapsed time, heart rate, HRM confidence, level, shuttle and distance (plus GPS
 speed and position when that's on). It keeps
 logging while you're on the clock face.
 
 To get it off the watch, connect in the App Loader you installed from,
-find **Bleep Test** under *My Apps* and click its **download (interface) icon**. Each test
+find **Beep Test** under *My Apps* and click its **download (interface) icon**. Each test
 can be downloaded as:
 
 * **TCX** (Garmin Training Center XML): a standard activity format with time, distance
@@ -101,5 +101,5 @@ exported activity has the right date.
 
 ## More
 
-- Source, issues and development builds: [github.com/cbishopvelti/bleep](https://github.com/cbishopvelti/bleep)
-- Developing and testing: [docs/DEVELOPMENT.md](https://github.com/cbishopvelti/bleep/blob/main/docs/DEVELOPMENT.md)
+- Source, issues and development builds: [github.com/cbishopvelti/beep](https://github.com/cbishopvelti/beep)
+- Developing and testing: [docs/DEVELOPMENT.md](https://github.com/cbishopvelti/beep/blob/main/docs/DEVELOPMENT.md)

@@ -1,10 +1,10 @@
-// Bleep Test widget: shows level.shuttle and heart rate while a test is running
+// Beep Test widget: shows level.shuttle and heart rate while a test is running
 (function () {
   var timer;
-  function active() { return global.bleepTest && global.bleepTest.active(); }
+  function active() { return global.beepTest && global.beepTest.active(); }
   function draw() {
     if (!active()) return;
-    var s = global.bleepTest.status(), x = this.x, y = this.y;
+    var s = global.beepTest.status(), x = this.x, y = this.y;
     g.reset().clearRect(x, y, x + 29, y + 23);
     g.setFont("6x8").setFontAlign(0, -1);
     g.drawString(s.level + "." + (s.shuttle + 1), x + 15, y + 3);
@@ -16,16 +16,16 @@
   function update() {
     var on = active();
     var w = on ? 30 : 0;
-    if (on && !timer) timer = setInterval(function () { WIDGETS.bleeptest.draw(WIDGETS.bleeptest); }, 1000);
+    if (on && !timer) timer = setInterval(function () { WIDGETS.beeptest.draw(WIDGETS.beeptest); }, 1000);
     if (!on && timer) { clearInterval(timer); timer = undefined; }
-    if (WIDGETS.bleeptest.width != w) {
-      WIDGETS.bleeptest.width = w;
+    if (WIDGETS.beeptest.width != w) {
+      WIDGETS.beeptest.width = w;
       Bangle.drawWidgets();
     }
   }
-  WIDGETS.bleeptest = { area: "tl", width: 0, draw: draw, update: update };
+  WIDGETS.beeptest = { area: "tl", width: 0, draw: draw, update: update };
   if (active()) {
-    WIDGETS.bleeptest.width = 30;
-    timer = setInterval(function () { WIDGETS.bleeptest.draw(WIDGETS.bleeptest); }, 1000);
+    WIDGETS.beeptest.width = 30;
+    timer = setInterval(function () { WIDGETS.beeptest.draw(WIDGETS.beeptest); }, 1000);
   }
 })();

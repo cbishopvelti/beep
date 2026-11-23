@@ -1,4 +1,4 @@
-# Developing Bleep Test
+# Developing Beep Test
 
 - User guide (also the App Loader's "Read more"): [README.md](../README.md)
 - Tests: `npm test` in a headless emulator, see [tests/README.md](../tests/README.md)
@@ -7,39 +7,39 @@
 
 | File | On the watch | What it does |
 |---|---|---|
-| `lib.js` | `bleeptest` (module) | The test engine: level tables, cues, HR/GPS logging, results. The schedule is a pure function of time since the start, so it never drifts and can be resumed. |
-| `boot.js` | `bleeptest.boot.js` | On every app load, resumes a test in progress from `bleeptest.state.json`, so it keeps running at the clock. |
-| `widget.js` | `bleeptest.wid.js` | Shows `level.shuttle` and heart rate on the clock while a test runs. |
-| `app.js` | `bleeptest.app.js` | The screens and menus. |
-| `interface.html`, `bleeplog.js` | (App Loader only) | The download page: turns a log into TCX or CSV. |
+| `lib.js` | `beeptest` (module) | The test engine: level tables, cues, HR/GPS logging, results. The schedule is a pure function of time since the start, so it never drifts and can be resumed. |
+| `boot.js` | `beeptest.boot.js` | On every app load, resumes a test in progress from `beeptest.state.json`, so it keeps running at the clock. |
+| `widget.js` | `beeptest.wid.js` | Shows `level.shuttle` and heart rate on the clock while a test runs. |
+| `app.js` | `beeptest.app.js` | The screens and menus. |
+| `interface.html`, `beeplog.js` | (App Loader only) | The download page: turns a log into TCX or CSV. |
 
-Data on the watch: `bleeptest.json` (past results), `bleeptest.settings.json`
-(course, GPS), `bleeptest.state.json` (the test in progress) and one
-`bleeptest.<start time>.csv` StorageFile per test with a line a second.
+Data on the watch: `beeptest.json` (past results), `beeptest.settings.json`
+(course, GPS), `beeptest.state.json` (the test in progress) and one
+`beeptest.<start time>.csv` StorageFile per test with a line a second.
 
 ## Installing development builds
 
 **One click (easiest).** Open
-[cbishopvelti.github.io/bleep](https://cbishopvelti.github.io/bleep/) in
+[cbishopvelti.github.io/beep](https://cbishopvelti.github.io/beep/) in
 Chrome or Edge, press **Connect**, pick the watch and press the install
-(or update) button on Bleep Test. It's the normal Bangle.js App Loader with
-only Bleep Test on it, rebuilt from main on every push by
+(or update) button on Beep Test. It's the normal Bangle.js App Loader with
+only Beep Test on it, rebuilt from main on every push by
 [`.github/workflows/pages.yml`](../.github/workflows/pages.yml)
 (`sh tools/build-loader.sh` builds the same thing locally into `_site/`).
 The download page for the heart rate logs is there too: the download icon
-next to Bleep Test under *My Apps*.
+next to Beep Test under *My Apps*.
 
 The first time, GitHub Pages has to be switched on: in the repository's
 Settings > Pages, set Source to **GitHub Actions**.
 
 **Trying a pull request before it's merged.** Every open PR from a branch in
 this repository gets its own install page at
-`cbishopvelti.github.io/bleep/pr-<number>/`, with a yellow banner saying
+`cbishopvelti.github.io/beep/pr-<number>/`, with a yellow banner saying
 which PR it is. A bot comment on the PR links to it and is kept up to date.
 The preview's version is main's plus a fourth number (`0.01.12.3` is 3 PR
 commits on top of main's `0.01.12`), so the App Loader offers it as an
 update, and main's next build after the merge as an update again. To go back
-without merging, open the main page and press reinstall on Bleep Test.
+without merging, open the main page and press reinstall on Beep Test.
 Previews rebuild on every push to the PR or to main and disappear when the
 PR closes.
 
@@ -50,11 +50,11 @@ Files** and select every file in the folder (it only takes the ones
 `metadata.json` lists).
 
 **Espruino Web IDE.** Run `npm run bundle` (Node 18 or later, no packages
-needed), or download `bleeptest-install` from the latest
-[Emulator tests run](https://github.com/cbishopvelti/bleep/actions/workflows/test.yml) on GitHub. Open the
+needed), or download `beeptest-install` from the latest
+[Emulator tests run](https://github.com/cbishopvelti/beep/actions/workflows/test.yml) on GitHub. Open the
 [Web IDE](https://www.espruino.com/ide/), connect to the watch, paste
-`dist/bleeptest-install.js` into the editor on the right and press **Send to
-Espruino**. It writes the files, adds Bleep Test to the launcher and restarts
+`dist/beeptest-install.js` into the editor on the right and press **Send to
+Espruino**. It writes the files, adds Beep Test to the launcher and restarts
 the clock. Sending it again updates the app. (This route has no download
 page for the logs: use one of the App Loaders for that.)
 
@@ -67,15 +67,15 @@ while ago.
 
 | To test | Type |
 |---|---|
-| Level 2 starts (3 buzzes) in 10 s | `require("bleeptest").start(20,{start:Date.now()-53000})` |
-| Level 8 starts in 10 s, 20m | `require("bleeptest").start(20,{start:Date.now()-432000})` |
-| The end of level 21 (test complete) in 10 s | `require("bleeptest").start(20,{start:Date.now()-1311000})` |
-| 15m course, with GPS speed | `require("bleeptest").start(15,{gps:true})` |
+| Level 2 starts (3 buzzes) in 10 s | `require("beeptest").start(20,{start:Date.now()-53000})` |
+| Level 8 starts in 10 s, 20m | `require("beeptest").start(20,{start:Date.now()-432000})` |
+| The end of level 21 (test complete) in 10 s | `require("beeptest").start(20,{start:Date.now()-1311000})` |
+| 15m course, with GPS speed | `require("beeptest").start(15,{gps:true})` |
 
-`require("bleeptest").cancel()` throws away a test started this way. Disconnect the Web IDE
+`require("beeptest").cancel()` throws away a test started this way. Disconnect the Web IDE
 before a check that needs the watch on your wrist.
 
-1. **Install.** Bleep Test is in the launcher with its icon. Opening it shows
+1. **Install.** Beep Test is in the launcher with its icon. Opening it shows
    the course and "Tap to start". No widget on the clock while idle.
 2. **Start.** Press the button on the start screen: a menu opens and nothing
    buzzes. Back out, then tap the screen: a 5 s countdown, three buzzes and the
@@ -95,9 +95,9 @@ before a check that needs the watch on your wrist.
 
 ## Releasing to the Bangle.js App Loader
 
-To list Bleep Test in the official App Loader (banglejs.com/apps), it goes
+To list Beep Test in the official App Loader (banglejs.com/apps), it goes
 into the [espruino/BangleApps](https://github.com/espruino/BangleApps)
-repository as `apps/bleeptest/`. This repository stays the place it is
+repository as `apps/beeptest/`. This repository stays the place it is
 developed; a release copies the app's files across.
 
 1. Bump `version` in `metadata.json` (two numbers, such as `0.02`) and add a
@@ -109,7 +109,7 @@ developed; a release copies the app's files across.
    and its ESLint rules, which allow no warnings) on the app. CI runs it on
    every pull request too.
 4. In a fork of BangleApps, on a new branch from its `master`, copy the
-   files in: `node tools/app-files.js <fork>/apps/bleeptest` (it copies only
+   files in: `node tools/app-files.js <fork>/apps/beeptest` (it copies only
    what `metadata.json` uses, plus `ChangeLog`, `README.md`, the screenshots
    and the download page). Commit with an `AI-assisted` trailer if AI helped
    (their `AGENTS.md` asks for it, without naming the AI service), push, and
@@ -123,6 +123,6 @@ developed; a release copies the app's files across.
 Code in BangleApps is MIT licensed: submitting it there means agreeing to
 that for the app.
 
-The install page here (`cbishopvelti.github.io/bleep`) keeps publishing
+The install page here (`cbishopvelti.github.io/beep`) keeps publishing
 main as `<version>.<build>` (`0.01.12`), which the App Loader sees as newer
 than the store's `0.01`, so a watch on development builds stays on them.

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Checks Bleep Test the way the official Bangle.js app store (espruino/BangleApps)
+# Checks Beep Test the way the official Bangle.js app store (espruino/BangleApps)
 # checks a pull request: its bin/sanitycheck.js over every app, plus its
-# ESLint rules (no warnings allowed) over apps/bleeptest.
+# ESLint rules (no warnings allowed) over apps/beeptest.
 #
 #   sh tools/store-check.sh [bangleapps dir]
 #
 # Uses (or makes) a BangleApps clone, default $BANGLE_DIR/BangleApps-store
 # (BANGLE_DIR defaults to /opt/bangle, as for the tests), and copies the
-# app's files into its apps/bleeptest with tools/app-files.js. Needs git and
+# app's files into its apps/beeptest with tools/app-files.js. Needs git and
 # Node 18+; it runs `npm ci` in the clone for ESLint.
 set -eu
 
@@ -22,15 +22,15 @@ fi
 cd "$DIR"
 [ -d node_modules ] || npm ci --silent --no-audit --no-fund
 
-rm -rf apps/bleeptest
-node "$REPO_DIR/tools/app-files.js" apps/bleeptest "$REPO_DIR"
+rm -rf apps/beeptest
+node "$REPO_DIR/tools/app-files.js" apps/beeptest "$REPO_DIR"
 
 status=0
 out=$(node bin/sanitycheck.js 2>&1) || status=1
 echo "$out" | tail -3
-# Other apps' known problems are upstream's; any line naming Bleep Test is ours.
-if echo "$out" | grep -i bleeptest; then status=1; fi
-npx eslint --max-warnings 0 apps/bleeptest || status=1
+# Other apps' known problems are upstream's; any line naming Beep Test is ours.
+if echo "$out" | grep -i beeptest; then status=1; fi
+npx eslint --max-warnings 0 apps/beeptest || status=1
 
 if [ "$status" = 0 ]; then echo "store check passed"; else echo "store check FAILED"; fi
 exit $status

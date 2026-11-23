@@ -1,7 +1,7 @@
 {
-  "name": "bleeptest",
+  "name": "beeptest",
   "private": true,
-  "description": "Bleep Test: multistage fitness test for Bangle.js 2",
+  "description": "Beep Test: multistage fitness test for Bangle.js 2",
   "scripts": {
     "test": "node tests/run.js",
     "setup-emulator": "sh tests/setup-emulator.sh",
