@@ -22,12 +22,14 @@ test("start screen: course and Tap to start, no button hints", async h => {
   assert(!drawn.some(s => /BTN/.test(s)), "no BTN hint: " + drawn);
 });
 
-test("tap starts a 5 s countdown, then the test", async h => {
+test("tap starts a 3 s countdown, then the test", async h => {
   await open(h);
   tap(h);
   assert.eq(h.eval("view"), "countdown");
   assert(!h.eval(`${BT}.active()`), "not started yet");
-  await h.wait(5100);
+  await h.wait(2900);
+  assert.eq(h.eval("view"), "countdown", "still counting at 2.9 s");
+  await h.wait(200);
   assert.eq(h.eval("view"), "run");
   assert.eq(h.eval(`${BT}.status().m`), 20);
 });
@@ -59,7 +61,7 @@ test("course and GPS choices are remembered and used", async h => {
   h.tx("showMenu()");
   assert.eq(h.eval("MENU.Course.format(MENU.Course.value)"), "15m");
   h.tx('MENU["Start test"]()');
-  await h.wait(5100);
+  await h.wait(3100);
   assert.eq(h.eval(`[${BT}.status().m,${BT}.status().gps]`), [15, true]);
   assert.eq(h.eval("GPS_USERS"), { beeptest: 1 });
 });
@@ -153,4 +155,23 @@ test("Results lists past tests", async h => {
   const items = menuItems(h);
   assert.eq(items.length, 1);
   assert(/ 20m 3\.1$/.test(items[0]), items[0]);
+});
+
+test("the watch locks as usual during a test, and redraws less when locked", async h => {
+  const before = h.eval("Bangle.getOptions().lockTimeout");
+  startAgo(h, 20, 30);
+  await h.load("beeptest.app.js");
+  assert.eq(h.eval("view"), "run");
+  assert.eq(h.eval("Bangle.getOptions().lockTimeout"), before, "lock timeout left alone");
+  h.tx("global.N=0;(function(o){global.drawRun=function(){N++;return o()}})(drawRun)");
+  const draws = async () => {
+    h.tx("showRun();N=0");
+    await h.wait(4000);
+    return h.eval("N");
+  };
+  h.tx("Bangle.setLocked(false)");
+  const unlocked = await draws();
+  h.tx("Bangle.setLocked(true)");
+  const locked = await draws();
+  assert(unlocked >= 14 && locked <= 5, `draws in 4 s: ${unlocked} unlocked, ${locked} locked`);
 });

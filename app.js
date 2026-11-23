@@ -9,7 +9,7 @@ var storage = require("Storage");
 var bt = global.beepTest = require("beeptest");
 var SETTINGS = "beeptest.settings.json";
 var HISTORY = "beeptest.json";
-var COUNTDOWN = 5;
+var COUNTDOWN = 3;
 var COURSES = [20, 15];
 
 var settings = storage.readJSON(SETTINGS, 1) || {};
@@ -17,7 +17,6 @@ if (COURSES.indexOf(settings.m) < 0) settings.m = 20;
 
 var view;      // "ready", "countdown", "run", "result", "menu"
 var timers = {};
-var prevOpts;
 
 function clearTimers() {
   for (var k in timers) { clearTimeout(timers[k]); clearInterval(timers[k]); }
@@ -38,21 +37,6 @@ function heart(x, y, r) {
   g.setColor(g.theme.fg);
 }
 
-// ---------- screen options ----------
-function keepAwake() {
-  if (prevOpts) return;
-  prevOpts = Bangle.getOptions ? Bangle.getOptions() : {};
-  Bangle.setOptions({ lockTimeout: 0, backlightTimeout: 0 });
-  Bangle.setLocked(false);
-  Bangle.setLCDPower(1);
-}
-function restoreAwake() {
-  if (!prevOpts) return;
-  if (prevOpts.lockTimeout !== undefined)
-    Bangle.setOptions({ lockTimeout: prevOpts.lockTimeout, backlightTimeout: prevOpts.backlightTimeout });
-  prevOpts = undefined;
-}
-E.on("kill", restoreAwake);
 
 // A custom screen: short button press opens the menu. A long press is left to
 // the firmware, which goes back to the clock.
@@ -71,7 +55,7 @@ function setScreen(name, opts) {
   Bangle.setUI({
     mode: "custom",
     touch: opts.touch,
-    remove: function () { clearWatch(w); clearTimers(); }
+    remove: function () { clearWatch(w); clearTimers(); if (opts.remove) opts.remove(); }
   });
   g.reset().clearRect(Bangle.appRect);
 }
@@ -80,7 +64,6 @@ function setScreen(name, opts) {
 function showReady() {
   if (bt.active()) return showRun();
   Bangle.setHRMPower(0, "beeptest.app"); // in case a countdown was cancelled
-  restoreAwake();
   setScreen("ready", { touch: startCountdown });
   var R = Bangle.appRect, cx = R.x + R.w / 2;
   g.setFontAlign(0, -1).setFont("6x8", 2).drawString("Beep Test", cx, R.y + 4);
@@ -94,7 +77,6 @@ function showReady() {
 // ---------- countdown ----------
 function startCountdown() {
   setScreen("countdown", { btn: showReady });
-  keepAwake();
   // warm the HRM up so there is a reading at the start
   Bangle.setHRMPower(1, "beeptest.app");
   var n = COUNTDOWN;
@@ -118,11 +100,17 @@ function startCountdown() {
 }
 
 // ---------- running ----------
+// The watch locks and dims as usual during a test. While it's locked the
+// screen redraws once a second instead of four times, to save battery.
 function showRun() {
-  setScreen("run");
-  keepAwake();
-  timers.draw = setInterval(drawRun, 250);
-  drawRun();
+  function rate() {
+    if (timers.draw) clearInterval(timers.draw);
+    timers.draw = setInterval(drawRun, Bangle.isLocked() ? 1000 : 250);
+    drawRun();
+  }
+  setScreen("run", { remove: function () { Bangle.removeListener("lock", rate); } });
+  Bangle.on("lock", rate);
+  rate();
 }
 
 function drawRun() {
@@ -149,7 +137,6 @@ function drawRun() {
 
 Bangle.on("beeptest", function (e) {
   if (e.type == "done" && (view == "run" || view == "menu")) {
-    restoreAwake();
     showResult(e.data, showReady);
   }
 });
@@ -166,7 +153,6 @@ function showMenu() {
       "Back to test": showRun,
       "Stop & save": function () {
         var res = bt.stop(false, stopAt);
-        restoreAwake();
         showResult(res, showReady);
       },
       "Cancel test": function () {
