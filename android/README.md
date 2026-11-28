@@ -20,21 +20,25 @@ only remembers its last 30 results). There's no server and no account.
 | `src/platform/android.rs` | Android over JNI: sending a line (the Gadgetbridge broadcast, or the direct link), `WatchReceiver`'s broadcast (which needs no UI: the process may have started just for it), `BootReceiver`, the share sheet, the theme and the system bars, the safe area and the density. |
 | `src/platform/android/ble.rs` | The direct link's Bluetooth calls, ported from blink's: the GATT connection to the watch's UART service (`WatchGatt` reports it), the scan for watches (`WatchScan`), and `WatchService`, the foreground service that keeps it while the app is closed. |
 | `src/platform/android/ui_loop.rs` | blink's event loop wrapper, which lets the loop sleep while the app is in the background (eframe 0.33 would otherwise spin a CPU core), and syncs when the app comes back to the front. |
-| `src/ui.rs`, `src/ui/` | The pages, from a menu as blink's: Results (`ui/results.rs`), a result (`ui/result.rs`), Watch (`ui/watch.rs`) and Settings (`ui/settings.rs`). |
+| `src/ui.rs` | The shell around the pages, as blink's: the theme and fonts, the cards and buttons, the menu, the back key (a pop-up, then the menu, then back to Results; on Results it moves the app to the background, `platform::leave`), the safe area, and `Input::Opened` and `Input::Tick` for the sync engine. |
+| `src/ui/` | The pages: Results (`ui/results.rs`), a result (`ui/result.rs`), Watch (`ui/watch.rs`) and Settings (`ui/settings.rs`). With them, the charts (`ui/chart.rs`, egui's painter only, the scaling apart from the drawing so it's tested), and from blink the pop-ups (`ui/dialog.rs`), the switch (`ui/toggle.rs`), the chips (`ui/chip.rs`) and the dot, name and words rows (`ui/status.rs`). `ui/demo.rs` makes demo data through the store (the desktop's `--demo`, and the UI tests); the phone never calls it. |
 | `src/lib.rs` | `android_main`, the entry the NativeActivity calls, and `app()` for the desktop. |
-| `src/bin/desktop.rs` | The same app in a desktop window, for working on it without a phone. |
-| `app/src/main/java` | Stub classes, the only Java: Android delivers broadcasts, the Bluetooth callbacks and the service's start to classes named in the manifest, which Rust can't define. Each passes what it gets straight to Rust and holds no logic (`ThemeStub` sets the system bar icons, which must happen on Android's UI thread). See "The Java side" below. |
+| `src/bin/desktop.rs` | The same app in a desktop window, for working on it without a phone: `--demo` fills the data directory with demo results, and `BEEP_PAGE`, `BEEP_THEME`, `BEEP_SIZE` and `BEEP_SHOT` open a page and save a screenshot (documented at the top of the file). |
+| `tests/sync.rs` | The sync engine against a fake watch (`sync.js` as the phone sees it) over a link that loses, repeats and reorders lines, with the app killed, the watch going back to the clock mid-transfer, and forged events; `BEEP_SEEDS=500` runs more seeds. |
+| `tests/fixtures.rs`, `tests/beeplog.rs` | The shared fixtures (`tests/fixtures/` at the repo root), and the log port against files `beeplog.js` wrote. |
+| `tests/ui_result.rs`, `tests/ui_watch.rs` | The pages clicked through headlessly (`egui_kittest`, no pixels) on the demo data: a result, sharing, deleting and the back key; the menu, the Watch page's settings waiting for the watch's answer, the running-test banner, and the theme. |
+| `app/src/main/java` | Stub classes, the only Java: Android delivers broadcasts, the Bluetooth callbacks and the service's start to classes named in the manifest, which Rust can't define. Each passes what it gets straight to Rust and holds no logic (`ThemeStub` sets the system bar icons, which must happen on Android's UI thread, and `MainActivity` ends the process when the activity is destroyed). See "The Java side" below. |
 | `app/` | The Gradle project that packages `libbeep_android.so` into an APK. |
 | `fonts/` | Ubuntu Medium, for headings (UFL, `fonts/UFL.txt`), as blink's. |
 
 ## Building
 
-You need Rust (stable, 1.85 or later), and for the APK the Android SDK with NDK 27.2.12479018 and
+You need Rust (stable, 1.88 or later, as egui 0.33 does), and for the APK the Android SDK with NDK 27.2.12479018 and
 platform 36, JDK 17 or later, and [cargo-ndk](https://github.com/bbqsrc/cargo-ndk).
 
 ```sh
 cd android
-cargo test                 # the sync engine, the store, the log port, on the desktop
+cargo test                 # the sync engine, the store, the log port and the pages, on the desktop
 cargo run                  # the app in a desktop window, data in ./beep-data (or $BEEP_DATA)
 
 rustup target add aarch64-linux-android x86_64-linux-android
@@ -112,12 +116,22 @@ ends, a result is deleted on it, its settings change, or a phone connects). A sy
   complete log is renamed to `logs/<f>`.
 - `busy` (a test is running on the watch) stops the round: the watch says `state` when the test
   ends, which starts the next.
+- A delete on the phone stays pending (in every `beeptest-sync`) until the watch is seen without
+  it: a history fetched that doesn't list it, or a `state` whose `hist` is the history last
+  fetched when that doesn't list it (a result the watch had already forgotten leaves its
+  history as it was).
+- Deleting the result whose log is being fetched ends the round; the watch's answer to the sync
+  starts the next (or the pages say it isn't answering). A log that can't be marked as having
+  none (the phone's storage full, say) is given up on for the round rather than asked for again
+  at once.
+- The 10 s waits count from the phone's clock as it is when they're checked, so a clock set back
+  doesn't stop them.
 
 Everything the phone needs to carry on is on disk, so a round interrupted by the app being killed
 carries on at the next `state` or sync. Since the receiver is exported (Gadgetbridge has to reach
 it), any app on the phone can send it an intent: file names must be the watch's
 (`beeptest.<digits>.csv` or `beeptest.json`), a log is refused past 4 MB and the history past 64 KB,
-and numbers must parse.
+`state`'s `del` past 30 names (as many as the watch remembers), and numbers must parse.
 
 ### The watch without Gadgetbridge
 
@@ -174,6 +188,19 @@ Each stub's native methods and the Rust functions they land in (names as JNI man
 | `WatchScan` (a `ScanCallback`) | `nativeFound(String address, String name, int rssi)` | `platform/android/ble.rs` |
 | `WatchService` (a foreground `Service`) | `nativeStarted(Service)`, `nativeStopped()` | `platform/android/ble.rs` |
 | `ThemeStub` | none: Rust calls its static `lightBars(Activity, boolean)` | `platform/android.rs` |
+| `MainActivity` (the `NativeActivity`, the manifest's launcher) | none: its `onDestroy` ends the process | none |
+
+**Why `MainActivity`.** `NativeActivity.onDestroy` blocks Android's main thread until
+`android_main` returns, and it never does: winit 0.30 drops `onDestroy`, and it allows one event
+loop per process, so `android_main` couldn't run again in that process anyway. When the activity
+is destroyed and the process lives on (swiped away in Recents while `WatchService` keeps the
+process, or a configuration change), the main thread would hang, and every broadcast with it,
+until Android killed the app for not answering. So `MainActivity` ends the process first.
+`WatchService` is `START_STICKY`, so Android starts it again in a new process, and the next launch
+gets a new process too. The manifest's `configChanges` lists every change the window takes as it is
+(size, font scale, locale, dark mode, ...), so those don't destroy the activity at all. Back on
+Results doesn't either: winit reports every key as handled, so Android wouldn't act on it, and
+the app calls `moveTaskToBack` itself (`platform::leave`), which keeps the activity.
 
 Everything else is Rust calling Android's own classes over JNI, from whatever thread it's on
 (attached to the JavaVM for good), loading the app's own classes and androidx's `FileProvider`
@@ -188,8 +215,10 @@ checked without them: the Android code type-checks for `aarch64-linux-android` a
 `aarch64-linux-android` exports `ANativeActivity_onCreate`, `android_main` and every
 `Java_com_cbishopvelti_beep_*` function. The Java stubs compile (`javac` against Robolectric's
 `android-all` jar for Android 16), the headers `javac -h` writes from them match the Rust
-functions' names and parameters, and every Android method and field the Rust calls (83 of them) was
+functions' names and parameters, and every Android method and field the Rust calls (84 of them, with `moveTaskToBack`) was
 checked by name, signature and static-ness against that jar's classes. Only
 `FileProvider.getUriForFile`, which is androidx's, wasn't (its documented signature is used). It
 needs a real phone and watch for the rest: the broadcasts both ways with Gadgetbridge, a sync with
-the app closed, the direct link, the share sheet, the icons and the insets.
+the app closed, the direct link, the share sheet, the icons and the insets, back on Results, and
+`MainActivity` ending the process (that Android then starts `WatchService` again, and the app
+opens again cleanly).

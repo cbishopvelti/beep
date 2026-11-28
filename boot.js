@@ -19,4 +19,10 @@ if (require("Storage").read("beeptest.state.json") !== undefined) {
   NRF.on("connect", function () {
     setTimeout(function () { require("beeptest.sync").state(); }, 3000);
   });
+  // A load() cut a transfer to the phone off (sync.js): state, so the
+  // phone asks for the rest
+  if (require("Storage").read("beeptest.xfer") !== undefined) {
+    require("Storage").erase("beeptest.xfer");
+    setTimeout(function () { require("beeptest.sync").state(); }, 500);
+  }
 })();

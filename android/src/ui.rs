@@ -40,8 +40,9 @@
 //! **The back key** (Android's, which reaches egui as `Key::BrowserBack`;
 //! Escape on the desktop) undoes the last step ([`App::back`]): the menu or
 //! a pop-up closes first, then a result goes back to Results, then Watch or
-//! Settings goes back to Results. On Results it's left alone, for Android
-//! to close the app.
+//! Settings goes back to Results. On Results Android's back moves the app
+//! to the background ([`crate::platform::leave`]): winit reports every key
+//! as handled, so Android wouldn't do it itself.
 //!
 //! [`App::show`] is a frame without eframe, so the tests drive the pages
 //! headlessly (`tests/ui_*.rs`, with `egui_kittest`).
@@ -337,8 +338,8 @@ impl App {
         ctx.request_repaint_after(TICK);
         self.reload();
 
-        // Android's back key, or Escape on the desktop: only taken when
-        // there's somewhere to go back to.
+        // Android's back key, or Escape on the desktop (only when there's
+        // somewhere to go back to). Back on Results leaves the app.
         if self.back_step().is_some() {
             let pressed = ctx.input_mut(|i| {
                 i.consume_key(egui::Modifiers::NONE, egui::Key::BrowserBack)
@@ -349,6 +350,8 @@ impl App {
                 self.back();
                 self.reload();
             }
+        } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::BrowserBack)) {
+            platform::leave();
         }
 
         let ppp = ctx.pixels_per_point();

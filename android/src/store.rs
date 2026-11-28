@@ -332,6 +332,19 @@ impl Data {
             .map(|(_, s)| *s)
     }
 
+    /// Pending tombstones the watch's history doesn't list (`listed`)
+    /// become done: the watch has been seen without them. How many.
+    fn settle(&mut self, listed: &[String]) -> usize {
+        let mut settled = 0;
+        for (f, t) in &mut self.tombstones {
+            if *t == Tombstone::Pending && !listed.contains(f) {
+                *t = Tombstone::Done;
+                settled += 1;
+            }
+        }
+        settled
+    }
+
     /// Marks `f` deleted as `state`: a done tombstone stays done.
     fn set_tombstone(&mut self, f: &str, state: Tombstone) {
         match self.tombstones.iter_mut().find(|(t, _)| t == f) {
@@ -557,15 +570,24 @@ impl Store {
                     }
                 }
             }
-            for (f, t) in &mut data.tombstones {
-                if *t == Tombstone::Pending && !listed.contains(f) {
-                    *t = Tombstone::Done;
-                    merged.settled += 1;
-                }
-            }
+            merged.settled = data.settle(&listed);
             data.hist = hist;
             data.listed = listed;
             merged
+        })
+    }
+
+    /// The watch's history is still the one last fetched whole (its `hist`
+    /// is the same): pending tombstones it doesn't list become done, as
+    /// [`Store::merge_history`] would make them. That's a delete on the
+    /// phone of a result the watch had already forgotten, which leaves
+    /// its history as it was. How many.
+    pub fn settle_unlisted(&self) -> io::Result<usize> {
+        self.change(|data| {
+            let listed = std::mem::take(&mut data.listed);
+            let settled = data.settle(&listed);
+            data.listed = listed;
+            settled
         })
     }
 

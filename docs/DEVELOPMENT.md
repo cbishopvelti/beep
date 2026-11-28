@@ -16,8 +16,9 @@
 
 Data on the watch: `beeptest.json` (past results, the last 30),
 `beeptest.settings.json` (course, GPS), `beeptest.state.json` (the test in
-progress), `beeptest.sync.json` (results deleted on the watch, for the phone)
-and one `beeptest.<start time>.csv` StorageFile per test with a line a second.
+progress), `beeptest.sync.json` (results deleted on the watch, for the phone),
+`beeptest.xfer` (only between a `load()` that cut a transfer to the phone off
+and the boot code that follows it) and one `beeptest.<start time>.csv` StorageFile per test with a line a second.
 
 ## The watch link
 
@@ -60,7 +61,7 @@ is sent when no phone is connected (`NRF.getSecurityStatus().connected`).
 
 | `event` | Extras | When |
 | --- | --- | --- |
-| `state` | `v` (the version installed, from `beeptest.info`), `m` (`"20"` or `"15"`), `gps` (`"true"` or `"false"`), `run` (the running test's log file name, or `""`), `hist` (`"<length>:<crc>"` of the history as the phone gets it, `"0:0"` when there's none), `del` (log file names of results deleted on the watch, comma-separated, newest last, at most 30; `""` when none) | The answer to `beeptest-sync` and `beeptest-set`. Also sent unasked when a test starts, ends or is cancelled, when a result is deleted on the watch, when Course or GPS speed is changed on the watch, and 3 s after a phone connects (after Android Integration's own hello). |
+| `state` | `v` (the version installed, from `beeptest.info`), `m` (`"20"` or `"15"`), `gps` (`"true"` or `"false"`), `run` (the running test's log file name, or `""`), `hist` (`"<length>:<crc>"` of the history as the phone gets it, `"0:0"` when there's none), `del` (log file names of results deleted on the watch, comma-separated, newest last, at most 30; `""` when none) | The answer to `beeptest-sync` and `beeptest-set`. Also sent unasked when a test starts, ends or is cancelled, when a result is deleted on the watch, when Course or GPS speed is changed on the watch, 3 s after a phone connects (after Android Integration's own hello), and half a second after a `load()` that cut a transfer off (below). |
 | `log` | `f`, `at` (where this piece starts in the file), `crc` (`E.CRC32` of `d`), `d` (the piece: up to 1000 bytes of the file, as text) | A piece of the file asked for, in order, one per 50 ms timer tick so the watch stays responsive. |
 | `logend` | `f`, `len` (the file's length in bytes, or `-1` if it isn't there) | After the last piece. Also `-1` when the file being sent is deleted (on the watch, or by a sync). |
 | `busy` | `f` | A `beeptest-get` while a test is running: nothing is sent; ask again after the next `state` (which comes when the test ends). |
@@ -77,7 +78,17 @@ results are known by their log's file name `f`.
 Deleting a result on the watch (its Results menu, or Delete on the App
 Loader's download page) records the log's file name in `beeptest.sync.json`
 (`{"del":[...]}`, the last 30), which is what `state`'s `del` reports. A delete
-the phone asked for isn't recorded there.
+the phone asked for isn't recorded there. The Results menu finds the result
+to delete by its file name in the history as it is then, since the phone may
+have deleted others while the menu was open.
+
+A `load()` on the watch (back to the clock, a message opening) clears every
+timer and `sync.js` with them, so a transfer stops with no `logend`. Its
+`E.on("kill")` writes the file's name to `beeptest.xfer` first, and the boot
+code that runs next erases it and sends `state` half a second later: that
+starts the phone's next round, which asks for the rest from what it has.
+Without it, a sync with the phone app closed (nothing ticks there) would wait
+for the next test.
 
 The phone's side (when it syncs, how it resumes a log from the size of what
 it has, what it checks) is in `android/README.md`.

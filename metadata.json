@@ -33,6 +33,7 @@
     { "name": "beeptest.settings.json" },
     { "name": "beeptest.state.json" },
     { "name": "beeptest.sync.json" },
+    { "name": "beeptest.xfer" },
     { "wildcard": "beeptest.*.csv", "storageFile": true }
   ]
 }

@@ -16,7 +16,8 @@
 //! - The theme and the bars ([`system_dark`], [`light_bars`] through
 //!   `ThemeStub`), the safe area ([`status_bar_px`], [`nav_bar_px`]) and the
 //!   density, as blink's. The back key reaches the UI as egui's
-//!   `Key::BrowserBack` (the manifest keeps predictive back off for that).
+//!   `Key::BrowserBack` (the manifest keeps predictive back off for that);
+//!   on Results, [`leave`] moves the app to the background.
 //! - `WatchReceiver`'s broadcast:
 //!   [`Java_com_cbishopvelti_beep_WatchReceiver_nativeWatch`] reads the
 //!   extras named in [`crate::link::EXTRAS`] and passes them to
@@ -58,9 +59,10 @@ struct Jvm {
 }
 
 static JVM: OnceLock<Jvm> = OnceLock::new();
-/// The activity showing now: a new one replaces it each time
-/// `android_main` runs (the app opened again after back closed it, in the
-/// same process).
+/// The activity, from `android_main`. There's one per process:
+/// `MainActivity` ends the process when it's destroyed, since winit can't
+/// run a second event loop in it (back on Results only moves the app to
+/// the background, [`leave`]).
 static ACTIVITY: Mutex<Option<GlobalRef>> = Mutex::new(None);
 
 fn activity() -> Option<GlobalRef> {
@@ -419,6 +421,28 @@ pub fn system_dark() -> Option<bool> {
         "dark mode",
     );
     out
+}
+
+/// Back on the first page: the app goes to the background, as back does
+/// for an app with nowhere to go back to. winit reports every key as
+/// handled, so Android never does it itself. `moveTaskToBack`, not
+/// `finish`: the activity stays, and the app comes back where it was.
+pub fn leave() {
+    let Some(activity) = activity() else {
+        return;
+    };
+    with_env(
+        |env, _| {
+            env.call_method(
+                activity.as_obj(),
+                "moveTaskToBack",
+                "(Z)Z",
+                &[JValue::Bool(1)],
+            )?;
+            Ok(())
+        },
+        "back to the home screen",
+    );
 }
 
 /// Dark status and navigation bar icons for a light theme, light ones for

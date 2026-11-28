@@ -41,6 +41,9 @@ pub const MAX_LOG: u64 = 4 * 1024 * 1024;
 pub const MAX_HISTORY: u64 = 64 * 1024;
 /// The most a `log` piece carries, bytes.
 pub const MAX_PIECE: usize = 1000;
+/// The most names `state`'s `del` has: the watch remembers its last 30
+/// deletions (`sync.js` `KEEP`).
+pub const MAX_DEL: usize = 30;
 /// The extras the watch's events can have: what `WatchReceiver` reads off
 /// the broadcast (Android has no way to list a bundle's string extras that
 /// is any simpler) into the map for [`parse_event`].
@@ -311,6 +314,7 @@ fn shown(s: &str) -> String {
 /// - `m` not `"20"` or `"15"`, `gps` not `"true"` or `"false"`, `hist` not
 ///   `"<length>:<crc>"`, `at` or `crc` not an unsigned decimal (`crc` at
 ///   most 0xFFFFFFFF), `len` not one or `"-1"`;
+/// - `del` with more than [`MAX_DEL`] names;
 /// - `d` longer than [`MAX_PIECE`] bytes, or with a char past U+00FF;
 /// - `v` longer than 32 chars or not printable ASCII.
 pub fn parse_event(extras: &BTreeMap<String, String>) -> Result<WatchEvent, Refused> {
@@ -357,6 +361,12 @@ pub fn parse_event(extras: &BTreeMap<String, String>) -> Result<WatchEvent, Refu
             let hist = Hist::parse(hist).ok_or_else(|| bad("hist", hist))?;
             let del = match get("del")? {
                 "" => Vec::new(),
+                list if list.split(',').count() > MAX_DEL => {
+                    return Err(Refused(format!(
+                        "state: del has {} names, more than {MAX_DEL}",
+                        list.split(',').count()
+                    )));
+                }
                 list => list
                     .split(',')
                     .map(|f| {
@@ -653,6 +663,27 @@ mod tests {
             (st.run.as_deref(), st.del.len(), st.m, st.gps),
             (Some("beeptest.9.csv"), 0, 15, true)
         );
+
+        // As many deletions as the watch remembers, and no more.
+        let names = |n: u64| -> String {
+            (0..n)
+                .map(|i| format!("beeptest.{}.csv", 1_781_000_000 + i))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let mut s = state();
+        s.insert("del".into(), names(MAX_DEL as u64));
+        let WatchEvent::State(st) = parse_event(&s).unwrap() else {
+            panic!()
+        };
+        assert_eq!(st.del.len(), MAX_DEL);
+        s.insert("del".into(), names(MAX_DEL as u64 + 1));
+        assert_eq!(
+            parse_event(&s),
+            Err(Refused("state: del has 31 names, more than 30".into()))
+        );
+        s.insert("del".into(), names(20_000));
+        assert!(parse_event(&s).is_err());
 
         let piece = map(&[
             ("event", "log"),

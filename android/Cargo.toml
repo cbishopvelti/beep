@@ -3,7 +3,7 @@ name = "beep-android"
 description = "Beep Test's Android app: an egui UI that keeps the phone and the watch in sync."
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 publish = false
 
 [lib]

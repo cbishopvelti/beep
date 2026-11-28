@@ -93,7 +93,11 @@ pub fn test_log(start_s: i64, m: u32, target: u32, gps: bool, seed: u64) -> (Str
             // Running up and down a 20 m line, slowing at each turn.
             let speed =
                 tables::speed(p.level) * (0.75 + 0.35 * (into * std::f64::consts::PI).sin());
-            let along = if p.total % 2 == 0 { into } else { 1.0 - into };
+            let along = if p.total.is_multiple_of(2) {
+                into
+            } else {
+                1.0 - into
+            };
             let lat = 51.500_500 + along * 0.000_18;
             let lon = -0.120_900 + (noise.next() - 0.5) * 0.000_01;
             text += &format!(",{speed:.1},{lat:.6},{lon:.6}");

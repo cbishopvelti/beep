@@ -75,13 +75,21 @@ fn open_a_result_share_it_go_back_and_delete_one() {
         .collect();
     assert!(exported.iter().any(|f| f.ends_with(".csv")), "{exported:?}");
 
-    // The back key: back to Results, where it's left alone.
+    // The back key: back to Results. There it leaves the app (Android
+    // moves it to the background), and Escape does nothing.
+    let left = platform::left();
     harness.key_press(egui::Key::BrowserBack);
     harness.run_steps(2);
     assert_eq!(harness.state().page(), &Page::Results);
+    assert_eq!(platform::left(), left, "back to Results doesn't leave");
+    harness.key_press(egui::Key::BrowserBack);
+    harness.run_steps(2);
+    assert_eq!(harness.state().page(), &Page::Results);
+    assert_eq!(platform::left(), left + 1, "back on Results leaves");
     harness.key_press(egui::Key::Escape);
     harness.run_steps(2);
     assert_eq!(harness.state().page(), &Page::Results);
+    assert_eq!(platform::left(), left + 1, "Escape doesn't");
 
     // Delete, asked first: Cancel keeps it.
     harness.get_by_label_contains(&card).click();

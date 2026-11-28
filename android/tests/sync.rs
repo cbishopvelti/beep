@@ -8,7 +8,8 @@
 //! Each seeded run throws a while of chaos at both ends (tests run, are
 //! cancelled and deleted on the watch, results deleted on the phone, the
 //! settings changed, the phone app killed and started again, the watch
-//! disconnecting, other apps sending junk), then lets the link settle and
+//! disconnecting or going back to the clock mid-transfer, other apps
+//! sending junk), then lets the link settle and
 //! checks that the phone ended up with what the watch has: every result
 //! the watch lists and the phone didn't delete, with its log byte for byte,
 //! nothing deleted on either side, and the results the watch forgot kept.
@@ -364,6 +365,15 @@ impl FakeWatch {
         self.state();
     }
 
+    /// A `load()` (back to the clock, say): the transfer's timer and
+    /// `sync.js` go, and if a transfer was cut off the boot file says
+    /// `state` once the next app is up.
+    fn load(&mut self) {
+        if self.xfer.take().is_some() {
+            self.state();
+        }
+    }
+
     fn connect(&mut self, on: bool) {
         if on == self.connected {
             return;
@@ -506,6 +516,8 @@ struct Seen {
     forged: usize,
     busy: usize,
     gave_up: usize,
+    /// Transfers a load() on the watch cut off.
+    loads: usize,
 }
 
 struct World {
@@ -598,7 +610,7 @@ impl World {
         for _ in 0..3 {
             self.deliver_to_phone();
         }
-        if i % 20 == 0 {
+        if i.is_multiple_of(20) {
             self.phone(Input::Tick);
         }
         let r = &mut self.rng;
@@ -611,6 +623,12 @@ impl World {
             47..=48 => {
                 let on = !self.watch.connected;
                 self.watch.connect(on);
+            }
+            87..=90 => {
+                if self.watch.xfer.is_some() {
+                    self.seen.loads += 1;
+                }
+                self.watch.load();
             }
             49..=58 => self.phone(Input::SyncNow),
             59..=61 => {
@@ -676,7 +694,7 @@ impl World {
             Progress::Done { failed, .. } if !failed.is_empty() => self.seen.gave_up += 1,
             _ => {}
         }
-        if i % 25 == 0 {
+        if i.is_multiple_of(25) {
             for r in self.phone.store.results() {
                 if r.log == LogState::Complete {
                     self.seen.complete.insert(r.entry.f);
@@ -841,7 +859,7 @@ fn seeds() -> u64 {
 
 #[test]
 fn the_phone_converges_to_the_watch_over_a_bad_link() {
-    let mut totals = [0usize; 9];
+    let mut totals = [0usize; 10];
     for seed in 0..seeds() {
         let mut w = World::new(seed);
         w.phone(Input::Opened);
@@ -878,6 +896,7 @@ fn the_phone_converges_to_the_watch_over_a_bad_link() {
             w.seen.forged,
             w.seen.busy,
             w.seen.gave_up,
+            w.seen.loads,
         ]) {
             *t += n;
         }
@@ -885,7 +904,8 @@ fn the_phone_converges_to_the_watch_over_a_bad_link() {
     // The runs went through every kind of trouble, often.
     eprintln!(
         "results {}, kept after the watch forgot them {}, tombstones {} ({} from the watch), \
-         deletes on the phone {}, restarts {}, forged events {}, steps busy {}, steps given up {}",
+         deletes on the phone {}, restarts {}, forged events {}, steps busy {}, steps given up {}, \
+         transfers cut off by a load() {}",
         totals[0],
         totals[1],
         totals[2],
@@ -894,10 +914,11 @@ fn the_phone_converges_to_the_watch_over_a_bad_link() {
         totals[5],
         totals[6],
         totals[7],
-        totals[8]
+        totals[8],
+        totals[9]
     );
     let n = seeds() as usize;
-    for (t, per_seed) in totals.iter().zip([10, 1, 2, 1, 2, 2, 2, 5, 1]) {
+    for (t, per_seed) in totals.iter().zip([10, 1, 2, 1, 2, 2, 2, 5, 1, 1]) {
         assert!(*t >= per_seed * n / 2, "{totals:?}");
     }
 }
@@ -1026,6 +1047,45 @@ fn a_sync_cut_short_by_a_restart_carries_on() {
         assert!(sent.contains(&link::get_line(&r.entry.f, at)), "{sent:#?}");
     }
     w.check(4);
+}
+
+#[test]
+fn a_load_on_the_watch_mid_transfer_carries_on_with_the_app_closed() {
+    let mut w = World::with(6, 4);
+    w.phone(Input::Opened);
+    // Part of the way through the first log...
+    let mut pieces = 0;
+    while pieces < 2 {
+        if w.deliver_to_watch() {
+            continue;
+        }
+        if let Some(line) = w.link.to_phone.pop_front() {
+            if line.contains("\"event\":\"log\"") && !line.contains(HISTORY) {
+                pieces += 1;
+            }
+            w.phone.line(&line, w.now, &mut w.link);
+        } else {
+            w.now += 50;
+            w.watch.tick();
+            w.flush_watch();
+        }
+    }
+    // ...the watch goes back to the clock. No Tick follows (the app is
+    // closed): only what the watch says moves the phone on.
+    w.watch.load();
+    w.flush_watch();
+    for _ in 0..1_000_000 {
+        if w.deliver_to_watch() || w.deliver_to_phone() {
+            continue;
+        }
+        if w.watch.xfer.is_none() {
+            break;
+        }
+        w.now += 50;
+        w.watch.tick();
+        w.flush_watch();
+    }
+    w.check(6);
 }
 
 #[test]

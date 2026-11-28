@@ -158,7 +158,8 @@ pub const HAS_BLUETOOTH: bool = cfg!(target_os = "android");
 
 #[cfg(target_os = "android")]
 pub use android::{
-    density, keep_watch, light_bars, nav_bar_px, send_line, share_file, status_bar_px, system_dark,
+    density, keep_watch, leave, light_bars, nav_bar_px, send_line, share_file, status_bar_px,
+    system_dark,
 };
 
 #[cfg(target_os = "android")]
@@ -218,6 +219,22 @@ pub fn request_bluetooth() {}
 #[cfg(not(target_os = "android"))]
 pub fn system_dark() -> Option<bool> {
     None
+}
+
+/// Back with nowhere to go back to: Android moves the app to the
+/// background. The desktop stays as it is, and counts it ([`left`]).
+#[cfg(not(target_os = "android"))]
+pub fn leave() {
+    LEFT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(not(target_os = "android"))]
+static LEFT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How many times [`leave`] was called (the desktop only, for the tests).
+#[cfg(not(target_os = "android"))]
+pub fn left() -> usize {
+    LEFT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The status and navigation bars' icons, dark on a light theme (Android

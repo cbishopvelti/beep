@@ -518,9 +518,10 @@ fn to_fixed(x: f64, digits: u32) -> String {
 
 /// `v` as JavaScript's `String(v)` writes it: "12", "12.5", "0.1", "NaN",
 /// "1e+21". What `beeplog.js` gets when it joins or adds a number to a
-/// string without `toFixed`. The digits are the shortest that read back as
-/// `v` (what Rust's `{:e}` gives too), laid out as ECMAScript's
-/// Number::toString lays them out.
+/// string without `toFixed`. The digits are the fewest that read back as
+/// `v` (as many as Rust's `{:e}` gives) and, of those, the closest to `v`,
+/// the even one on a tie, as ECMAScript's Number::toString picks them
+/// (Rust's `{:e}` rounds a tie up). They're laid out as it lays them out.
 pub fn js_number(v: f64) -> String {
     if v.is_nan() {
         return "NaN".into();
@@ -534,7 +535,21 @@ pub fn js_number(v: f64) -> String {
     if v < 0.0 {
         return format!("-{}", js_number(-v));
     }
-    let e = format!("{v:e}");
+    let shortest = format!("{v:e}");
+    let k = shortest
+        .split('e')
+        .next()
+        .unwrap_or("")
+        .bytes()
+        .filter(u8::is_ascii_digit)
+        .count();
+    // The exact value rounded to k digits, half to even.
+    let nearest = format!("{v:.*e}", k.saturating_sub(1));
+    let e = if nearest.parse::<f64>() == Ok(v) {
+        nearest
+    } else {
+        shortest
+    };
     let (mantissa, exp) = e.split_once('e').unwrap_or((&e, "0"));
     let digits: String = mantissa.chars().filter(|c| c.is_ascii_digit()).collect();
     let k = digits.len() as i32;
@@ -745,8 +760,10 @@ mod tests {
     use super::*;
 
     #[test]
+    // The ties below are written out exactly: that they're ties is the point.
+    #[allow(clippy::excessive_precision)]
     fn numbers_print_as_javascript_prints_them() {
-        let cases: [(f64, &str); 18] = [
+        let cases: [(f64, &str); 21] = [
             (12.0, "12"),
             (12.5, "12.5"),
             (0.1, "0.1"),
@@ -765,6 +782,10 @@ mod tests {
             (f64::INFINITY, "Infinity"),
             (f64::NEG_INFINITY, "-Infinity"),
             (51.501234, "51.501234"),
+            // Two shortest candidates as close as each other: the even one.
+            (203424739792675.125, "203424739792675.12"),
+            (598558904416188.25, "598558904416188.2"),
+            (2883437877377.03125, "2883437877377.0312"),
         ];
         for (v, want) in cases {
             assert_eq!(js_number(v), want, "{v:?}");

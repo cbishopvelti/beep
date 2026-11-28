@@ -90,6 +90,15 @@ function stop() {
   xfer = undefined;
 }
 
+/* A load() (back to the clock, a message opening) ends a transfer without
+   a word: it clears the timers and this module. So say it was cut off in
+   KILLED, and the boot file sends state once the next app is up, which has
+   the phone ask again from where it got to. */
+var KILLED = "beeptest.xfer";
+E.on("kill", function () {
+  if (xfer) try { S.write(KILLED, xfer.f); } catch (e) { }
+});
+
 function end(len) {
   var f = xfer.f;
   stop();

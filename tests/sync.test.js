@@ -268,6 +268,32 @@ test("get: while a test runs answers busy, even for another file", async h => {
   assert.eq(ours(h).slice(from), [{ event: "busy", f: A }, { event: "busy", f: run }, { event: "busy", f: "beeptest.json" }]);
 });
 
+test("get: a load() mid-transfer (back to the clock) sends state once the clock is up", async h => {
+  threeResults(h);
+  await h.connect();
+  await h.wait(3000); // the connect's own state
+  await h.gb({ t: "beeptest-get", f: A });
+  await h.wait(150);
+  const from = ours(h).length;
+  const got = ours(h).filter(e => e.f == A).length;
+  assert(got >= 2, "A had started: " + got);
+  await h.load();
+  await h.wait(1000);
+  const after = ours(h).slice(from);
+  assert.eq(after.map(e => e.event), ["state"], "state, and nothing more of A");
+  assert(h.eval('require("Storage").read("beeptest.xfer")===undefined'), "the mark is gone");
+  // The phone asks for the rest
+  const at = ours(h).filter(e => e.f == A && e.event == "log").reduce((n, e) => n + e.d.length, 0);
+  const from2 = ours(h).length;
+  await h.gb({ t: "beeptest-get", f: A, at });
+  assert.eq(joined(await untilEnd(h, A, from2), at), readFile(h, A).slice(at));
+  // A load() with nothing being sent says nothing
+  const n = ours(h).length;
+  await h.load();
+  await h.wait(1000);
+  assert.eq(ours(h).length, n);
+});
+
 test("get: a test started mid-transfer stops it (busy), and its cues are on time", async h => {
   threeResults(h);
   await h.connect();
@@ -382,6 +408,63 @@ test("deleting a result in the app records it and sends state", async h => {
   assert.eq([last(h).event, last(h).del], ["state", B]);
   await deleteInApp(h, 0);
   assert.eq(last(h).del, B + "," + A, "newest last");
+});
+
+/* The app's Results screens open, with the phone deleting meanwhile */
+async function openResults(h) {
+  await h.load("beeptest.app.js");
+  spyMenu(h);
+  h.tx("global.SHOWN=[];showResult=function(r,back){SHOWN.push(r.f);back()};E.showPrompt=function(){return Promise.resolve(true)}");
+}
+
+test("deleting in the app after the phone deleted another leaves the phone's delete done", async h => {
+  threeResults(h);
+  await h.connect();
+  await openResults(h);
+  h.tx("showEntry(0)");
+  assert.eq(h.eval("SHOWN"), [A]);
+  // While A's menu shows, the phone deletes B
+  await h.gb({ t: "beeptest-sync", del: [B] });
+  assert.eq(history(h).map(r => r.f), [A, C]);
+  h.tx("MENU.Delete()");
+  await h.wait(50);
+  assert.eq(history(h).map(r => r.f), [C], "B isn't back");
+  assert(!exists(h, A) && !exists(h, B) && exists(h, C));
+  assert.eq(h.eval('require("Storage").readJSON("beeptest.sync.json")'), { del: [A] });
+});
+
+test("deleting in the app what the phone deleted meanwhile writes nothing back", async h => {
+  threeResults(h);
+  await h.connect();
+  await openResults(h);
+  h.tx("showEntry(1)");
+  await h.gb({ t: "beeptest-sync", del: [B] });
+  h.tx("MENU.Delete()");
+  await h.wait(50);
+  assert.eq(history(h).map(r => r.f), [A, C]);
+  assert(exists(h, A) && exists(h, C));
+});
+
+test("the Results list opens the result tapped after the phone deleted one above it", async h => {
+  threeResults(h);
+  await h.connect();
+  await openResults(h);
+  h.tx("showHistory()");
+  const items = h.eval("Object.keys(MENU).filter(function(k){return k!==''})");
+  assert.eq(items.length, 3);
+  await h.gb({ t: "beeptest-sync", del: [A] });
+  h.tx(`MENU[${JSON.stringify(items[1])}]()`);
+  assert.eq(h.eval("SHOWN"), [B], "B, not C");
+  h.tx("MENU.Delete()");
+  await h.wait(50);
+  assert.eq(history(h).map(r => r.f), [C]);
+  // A result from before the logs (no f) is still found by its place
+  h.tx('require("Storage").writeJSON("beeptest.json",[{t:1781344800000,m:20,l:3,s:2,d:500,dur:200,max:150,avg:130}])');
+  h.tx("SHOWN=[];showEntry(0)");
+  assert.eq(h.eval("SHOWN"), [null]);
+  h.tx("MENU.Delete()");
+  await h.wait(50);
+  assert.eq(history(h), []);
 });
 
 test("deletions on the watch: the last 30 are kept, newest last, each once", async h => {

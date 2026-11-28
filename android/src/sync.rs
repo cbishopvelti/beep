@@ -31,7 +31,9 @@
 //!    named in `del` ([`Store::deleted_on_watch`]). While a test runs
 //!    (`run` isn't `""`) that's all: the watch would answer any `get` with
 //!    `busy`, and it says `state` again when the test ends.
-//! 2. If `hist` differs from [`Store::watch_history`]'s, `get`
+//! 2. If `hist` is [`Store::watch_history`]'s, the history fetched last is
+//!    still the watch's: pending tombstones it doesn't list are done
+//!    ([`Store::settle_unlisted`]). If it differs, `get`
 //!    `beeptest.json` from 0 (unless `hist` says it's past
 //!    [`crate::link::MAX_HISTORY`]: then it isn't fetched). It is kept in
 //!    memory as it arrives and taken in ([`Store::merge_history`]) only
@@ -53,7 +55,8 @@
 //!    `len` equal to the partial's size finishes it ([`Store::finish_log`]),
 //!    whatever came before (everything appended was checked, so the
 //!    partial is the start of the watch's file); `None` marks it
-//!    ([`Store::set_no_log`]); a `len` past the cap gives it up for the
+//!    ([`Store::set_no_log`], or gives it up for the round if that can't be
+//!    written); a `len` past the cap gives it up for the
 //!    round; a `len` shorter than the partial drops the partial; otherwise (broken, or short) it is asked for again from the
 //!    partial's size, at most [`TRIES`] times a file a round, then given
 //!    up on for the round. So is a transfer from which nothing good has
@@ -97,11 +100,13 @@ pub enum Input {
     /// An event from the watch, checked.
     Watch(WatchEvent),
     /// About a second has gone by with the app open: the waits
-    /// ([`ANSWER_WAIT_MS`], [`STALL_MS`]) are checked. Usually nothing.
+    /// ([`ANSWER_WAIT_MS`], [`STALL_MS`]) are checked. Usually nothing. A
+    /// wait that started after `now` (the clock was set back) starts now.
     Tick,
     /// The user deleted result `f` (after confirming): it goes from the
     /// phone ([`Store::delete`]) and a `beeptest-sync` asks the watch to
-    /// delete it too.
+    /// delete it too. If its log was being fetched, the round ends there
+    /// (the watch's answer starts the next).
     Delete(String),
     /// The user changed the watch's course (20 or 15) or GPS setting on the
     /// Watch page: a `beeptest-set` line. The page shows the watch's own
@@ -254,7 +259,10 @@ impl Engine {
                     Err(e) => warn("delete", &f, &e),
                 }
                 if self.transfer.as_ref().is_some_and(|t| t.f == f) {
+                    // The log being fetched: the round ends here, and the
+                    // watch's answer to the sync starts the next.
                     self.transfer = None;
+                    self.state = None;
                 }
                 self.ask(store, now_ms, &mut out);
             }
@@ -289,14 +297,17 @@ impl Engine {
         &self.progress
     }
 
-    /// `beeptest-sync`, with the pending tombstones.
+    /// `beeptest-sync`, with the pending tombstones. A fetch under way
+    /// goes on showing; otherwise it's asking.
     fn ask(&mut self, store: &Store, now_ms: i64, out: &mut Output) {
         out.lines.push(link::sync_line(&store.pending_deletes()));
         self.asked_ms = Some(now_ms);
-        if !matches!(
-            self.progress,
-            Progress::History { .. } | Progress::Logs { .. }
-        ) {
+        if self.transfer.is_none()
+            || !matches!(
+                self.progress,
+                Progress::History { .. } | Progress::Logs { .. }
+            )
+        {
             self.progress = Progress::Asking { since_ms: now_ms };
         }
     }
@@ -311,6 +322,13 @@ impl Engine {
     }
 
     fn tick(&mut self, store: &Store, now_ms: i64, out: &mut Output) {
+        // The phone's clock set back: the waits count from now.
+        if let Some(since) = self.asked_ms.as_mut() {
+            *since = (*since).min(now_ms);
+        }
+        if let Some(t) = self.transfer.as_mut() {
+            t.last_ms = t.last_ms.min(now_ms);
+        }
         if let Some(since) = self.asked_ms
             && now_ms - since >= ANSWER_WAIT_MS
         {
@@ -368,6 +386,12 @@ impl Engine {
                 self.fetch(store, HISTORY, now_ms, out);
             }
         } else {
+            // The history last fetched is still the watch's: a phone delete
+            // it doesn't list has been done (one the watch had forgotten
+            // leaves its history, and so `hist`, as it was).
+            if let Err(e) = store.settle_unlisted() {
+                warn("settle", "the deletes", &e);
+            }
             self.next_log(store, now_ms, out);
         }
     }
@@ -494,7 +518,9 @@ impl Engine {
         if part + p.d.len() as u64 > MAX_LOG {
             log::warn!("sync: {} is past {MAX_LOG} bytes: refused", p.f);
             if let Err(e) = store.set_no_log(&p.f) {
+                // Not marked: not asked for again this round either.
                 warn("mark", &p.f, &e);
+                self.give_up(&p.f);
             }
             out.changed = true;
             self.next_log(store, now_ms, out);
@@ -560,7 +586,9 @@ impl Engine {
         match len {
             None => {
                 if let Err(e) = store.set_no_log(f) {
+                    // Not marked: not asked for again this round either.
                     warn("mark", f, &e);
+                    self.give_up(f);
                 }
                 out.changed = true;
                 self.next_log(store, now_ms, out);
@@ -960,6 +988,7 @@ mod tests {
         assert!(out.changed);
         assert_eq!(out.lines, vec![sync_line(&[A.into()])]);
         assert_eq!(t.store.part_len(A), 0);
+        assert_eq!(t.engine.progress().words(), "Asking the watch...");
         t.go(piece(A, 7, b"more"));
         assert!(!t.store.log_path(A).exists() && t.store.part_len(A) == 0);
         // The watch answers before deleting it (a state already on its way):
@@ -980,6 +1009,122 @@ mod tests {
         t.go(piece(HISTORY, 0, &h2));
         t.go(end(HISTORY, h2.len() as i64));
         assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[])]);
+    }
+
+    #[test]
+    fn a_phone_delete_the_watch_had_forgotten_is_settled_by_an_equal_hist() {
+        let mut t = T::new();
+        // The watch lists only B; the phone still has A from before.
+        t.store
+            .merge_history(&[entry(A, 2)], Hist::default())
+            .unwrap();
+        let h = history(&[entry(B, 1)]);
+        let hist = t.history(&[entry(B, 1)]);
+        t.go(end(HISTORY, h.len() as i64));
+        t.go(end(B, -1));
+        assert_eq!(t.store.watch_history().listed, vec![B]);
+        assert!(t.store.result(A).is_some());
+        assert_eq!(t.go(Input::Delete(A.into())), vec![sync_line(&[A.into()])]);
+        // The watch had nothing of A to take out of its history: the same
+        // hist. A isn't listed, so the delete is done.
+        assert_eq!(t.go(state(hist, None, &[])), Vec::<String>::new());
+        assert_eq!(t.store.tombstones()[A], Tombstone::Done);
+        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[])]);
+        // One the watch still lists stays pending until it's seen without it.
+        t.go(state(hist, None, &[]));
+        assert_eq!(t.go(Input::Delete(B.into())), vec![sync_line(&[B.into()])]);
+        t.go(state(hist, None, &[]));
+        assert_eq!(t.store.tombstones()[B], Tombstone::Pending);
+    }
+
+    #[test]
+    fn deleting_the_log_being_fetched_ends_the_round() {
+        let mut t = T::new();
+        let h = history(&[entry(A, 2), entry(B, 1)]);
+        t.history(&[entry(A, 2), entry(B, 1)]);
+        t.go(end(HISTORY, h.len() as i64));
+        t.go(piece(A, 0, b"abc"));
+        assert_eq!(t.engine.progress().words(), "Fetching 1 of 2 logs...");
+        // The watch went out of range (which is why A is still arriving),
+        // and A is deleted here.
+        assert_eq!(t.go(Input::Delete(A.into())), vec![sync_line(&[A.into()])]);
+        assert_eq!(t.engine.progress().words(), "Asking the watch...");
+        for _ in 0..(ANSWER_WAIT_MS / 1000) {
+            t.now += 1000;
+            assert_eq!(t.go(Input::Tick), Vec::<String>::new());
+        }
+        assert_eq!(t.engine.progress(), &Progress::NoAnswer);
+        assert!(!t.engine.progress().active());
+        // Sync now asks again, and says so the same way.
+        t.go(Input::SyncNow);
+        t.now += ANSWER_WAIT_MS;
+        t.go(Input::Tick);
+        assert_eq!(t.engine.progress(), &Progress::NoAnswer);
+        // A delete of another result leaves a fetch under way showing.
+        let hist = t.store.watch_history().hist;
+        assert_eq!(t.go(state(hist, None, &[])), vec![link::get_line(B, 0)]);
+        t.go(Input::Delete("beeptest.1.csv".into()));
+        assert_eq!(t.engine.progress().words(), "Fetching the log...");
+    }
+
+    #[test]
+    fn a_log_that_cant_be_marked_is_given_up_on_not_asked_for_forever() {
+        let mut t = T::new();
+        let h = history(&[entry(A, 2), entry(B, 1)]);
+        t.history(&[entry(A, 2), entry(B, 1)]);
+        t.go(end(HISTORY, h.len() as i64));
+        // The phone's storage can't take a write of results.json.
+        let tmp = t.store.dir().join("results.json.tmp");
+        std::fs::create_dir(&tmp).unwrap();
+        std::fs::write(tmp.join("x"), b"x").unwrap();
+        assert!(t.store.set_no_log(A).is_err(), "the write fails");
+        // The watch hasn't got A's log: on to B, and A isn't asked for
+        // again this round.
+        assert_eq!(t.go(end(A, -1)), vec![link::get_line(B, 0)]);
+        assert_eq!(t.go(end(A, -1)), Vec::<String>::new());
+        assert_eq!(t.go(end(B, -1)), Vec::<String>::new());
+        assert!(
+            matches!(t.engine.progress(), Progress::Done { failed, .. } if failed == &[A, B]),
+            "{:?}",
+            t.engine.progress()
+        );
+        // A piece past the cap, the same.
+        let hist = t.store.watch_history().hist;
+        t.store
+            .append_part(A, &vec![b'x'; MAX_LOG as usize - 10])
+            .unwrap();
+        t.go(state(hist, None, &[]));
+        assert_eq!(
+            t.go(piece(A, MAX_LOG - 10, &[b'y'; 11])),
+            vec![link::get_line(B, 0)]
+        );
+        assert_eq!(t.go(end(A, -1)), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_waits_count_from_now_when_the_clock_is_set_back() {
+        let mut t = T::new();
+        let h = history(&[entry(A, 2)]);
+        t.history(&[entry(A, 2)]);
+        t.go(end(HISTORY, h.len() as i64));
+        t.go(piece(A, 0, b"abc"));
+        // Set back an hour, then the watch goes out of range.
+        t.now -= 3_600_000;
+        let mut asked = 0;
+        for _ in 0..(STALL_MS / 1000 + 1) {
+            t.now += 1000;
+            asked += t.go(Input::Tick).len();
+        }
+        assert_eq!(asked, 1, "asked for again after 10 s, not an hour");
+        // The answer's wait too.
+        let mut t = T::new();
+        t.go(Input::SyncNow);
+        t.now -= 3_600_000;
+        for _ in 0..(ANSWER_WAIT_MS / 1000 + 1) {
+            t.now += 1000;
+            t.go(Input::Tick);
+        }
+        assert_eq!(t.engine.progress(), &Progress::NoAnswer);
     }
 
     #[test]
