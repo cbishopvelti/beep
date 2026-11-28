@@ -26,8 +26,9 @@ and the boot code that follows it) and one `beeptest.<start time>.csv` StorageFi
 
 The phone app (`android/`) keeps every result and heart rate log, and stays
 in sync with the watch: results and logs come off the watch by themselves,
-a delete on either side deletes on both, and the course and GPS speed can
-be set from the phone. It talks to the watch through Bangle.js Gadgetbridge,
+a delete on either side deletes on both, and the course and GPS speed (and
+the speeds, once the watch's engine has speed progressions) can be set from
+the phone. It talks to the watch through Bangle.js Gadgetbridge,
 as blink does, or directly over Bluetooth (the same lines both ways).
 
 **Phone to watch.** A line `\x10GB(<json>)\n`, ASCII only (anything outside
@@ -46,7 +47,7 @@ from Bangle.js" for a printed line that starts with `{`
 | --- | --- | --- |
 | `beeptest-sync` | `del`: log file names of results deleted on the phone (may be absent) | Deletes each named result (its history entry and its log; never the running test's), then answers `state`. |
 | `beeptest-get` | `f`: file name, `at`: byte offset to start from (default 0) | Sends that file from `at` as `log` pieces, then `logend`. `f` is a log (`beeptest.<digits>.csv`, a StorageFile) or `beeptest.json` (the history). One transfer at a time: a new `get` replaces one in progress (which ends without a `logend`). While a test is running it answers `busy` instead, since reading storage must not delay the cues, and a test that starts during a transfer stops it with `busy` too. A file that isn't there (or any other name) answers `logend` with `len` `-1`. |
-| `beeptest-set` | `m`: 20 or 15, `gps`: true or false (each optional) | Saves them to `beeptest.settings.json` (a bad `m` is ignored), emits `Bangle.emit("beeptest", {type: "settings"})` so an open app shows them, then answers `state`. |
+| `beeptest-set` | `m`: 20 or 15, `gps`: true or false, `p`: the speed progression, a number that indexes the engine's `PROGS` (0, 1 or 2; each optional) | Saves them to `beeptest.settings.json` (a bad `m` is ignored, and so is a `p` that isn't a valid index, or any `p` when the engine has no `PROGS`), emits `Bangle.emit("beeptest", {type: "settings"})` so an open app shows them, then answers `state`. |
 
 **Watch to phone.** A Gadgetbridge intent message, which Gadgetbridge
 broadcasts when Allow Intents is on, sent as blink's watch app does:
@@ -63,7 +64,7 @@ is sent when no phone is connected (`NRF.getSecurityStatus().connected`).
 
 | `event` | Extras | When |
 | --- | --- | --- |
-| `state` | `v` (the version installed, from `beeptest.info`), `m` (`"20"` or `"15"`), `gps` (`"true"` or `"false"`), `run` (the running test's log file name, or `""`), `hist` (`"<length>:<crc>"` of the history as the phone gets it, `"0:0"` when there's none), `del` (log file names of results deleted on the watch, comma-separated, newest last, at most 30; `""` when none) | The answer to `beeptest-sync` and `beeptest-set`. Also sent unasked when a test starts, ends or is cancelled, when a result is deleted on the watch, when Course or GPS speed is changed on the watch, 3 s after a phone connects (after Android Integration's own hello), and half a second after a `load()` that cut a transfer off (below). |
+| `state` | `v` (the version installed, from `beeptest.info`), `m` (`"20"` or `"15"`), `gps` (`"true"` or `"false"`), `run` (the running test's log file name, or `""`), `hist` (`"<length>:<crc>"` of the history as the phone gets it, `"0:0"` when there's none), `del` (log file names of results deleted on the watch, comma-separated, newest last, at most 30; `""` when none), and `p` (the speed progression, `"0"`, `"1"` or `"2"`, read as the app reads it: 0 unless the setting is one of `PROGS`) only when the engine has speed progressions (`require("beeptest").PROGS`) | The answer to `beeptest-sync` and `beeptest-set`. Also sent unasked when a test starts, ends or is cancelled, when a result is deleted on the watch, when Course or GPS speed (or Speeds) is changed on the watch, 3 s after a phone connects (after Android Integration's own hello), and half a second after a `load()` that cut a transfer off (below). |
 | `log` | `f`, `at` (where this piece starts in the file), `crc` (`E.CRC32` of `d`), `d` (the piece: up to 1000 bytes of the file, as text) | A piece of the file asked for, in order, one per 50 ms timer tick so the watch stays responsive. |
 | `logend` | `f`, `len` (the file's length in bytes, or `-1` if it isn't there) | After the last piece. Also `-1` when the file being sent is deleted (on the watch, or by a sync). A transfer stops with nothing sent when the phone disconnects. |
 | `busy` | `f` | A `beeptest-get` while a test is running: nothing is sent; ask again after the next `state` (which comes when the test ends). |
@@ -74,8 +75,20 @@ CRCs are `E.CRC32` as an unsigned decimal, the same number as zlib's
 quotes off keys (`{t:1781344800000,m:20,...}`), which a JSON parser on the
 phone refuses. `hist` is the length and CRC of that same text, so the phone
 compares it with what it fetched last. A history entry is
-`{t (ms), m, l, s, d (m), dur (s), max, avg, f}` (see `lib.js` `stop`), and
-results are known by their log's file name `f`.
+`{t (ms), m, p, l, s, d (m), dur (s), max, avg, f}` (see `lib.js` `stop`;
+`p`, the speed progression, only from an engine that has them, and absent
+means 0, the standard speeds), and results are known by their log's file
+name `f`. A log's start line is `start,<ms>,<tz offset>,<course>` and, from
+an engine with speed progressions, `,<p>` after that: the phone reads it,
+and `beeplog.js` (so the TCX and CSV) ignores it.
+
+**Speeds.** The engine's speed progressions (the Speeds setting) may or may
+not be installed: an engine without `PROGS` sends no `p` and ignores one,
+and the phone (`WatchState::p`) shows its Speeds choice only when the
+watch's `state` has a `p`. Either side may be the older one: a phone from
+before the speeds ignores the extra `p` in `state` and in history entries
+(it reads results as if on the standard speeds), and an older watch
+ignores the `p` in `beeptest-set`.
 
 Deleting a result on the watch (its Results menu, or Delete on the App
 Loader's download page) records the log's file name in `beeptest.sync.json`
@@ -121,7 +134,10 @@ node tests/fixtures/beeplog/make.js
 ```
 
 The version in `watch-lines.txt`'s `state` lines is `metadata.json`'s, so
-a new watch version means writing it again too.
+a new watch version means writing it again too. So does installing speed
+progressions in the engine: its `state` lines then carry `p` (the exchange
+sets `p` 1, which an engine without them ignores). Both sides' fixture
+tests take either.
 
 **Trying it by hand.** With the phone on adb and Gadgetbridge connected:
 

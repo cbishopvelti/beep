@@ -110,7 +110,7 @@ fn open(app: &mut App, store: &Arc<Store>, page: &str) {
         "menu" => app.open_menu(),
         "watch-sending" => {
             app.open(Page::Watch);
-            app.set_watch(Some(15), None);
+            app.set_watch(Some(15), None, None);
         }
         _ => {}
     }

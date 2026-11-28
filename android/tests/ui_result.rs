@@ -147,3 +147,33 @@ fn a_result_without_its_log_says_so_and_offers_no_shares() {
         harness.get_by_label("Delete this result");
     }
 }
+
+#[test]
+fn a_result_on_other_speeds_says_them_and_has_its_own_best() {
+    let (store, mut harness) = harness();
+    // The demo's two on 8.5, 9.5, 10.0... km/h (20 m): the further is the
+    // best on those speeds, whatever the standard speeds' results are.
+    let fast: Vec<_> = store
+        .results()
+        .into_iter()
+        .filter(|r| r.entry.p == 2)
+        .collect();
+    assert_eq!(fast.len(), 2);
+    let best = fast.iter().max_by_key(|r| r.entry.d).unwrap();
+    assert_eq!(
+        store.bests().get(&(20, 2)),
+        Some(&best.entry.f),
+        "{:?}",
+        store.bests()
+    );
+    let card = format!(
+        "Result {} on 20 m at 8.5, 9.5, 10.0... km/h",
+        best.entry.score_text()
+    );
+    harness.get_by_label_contains(&card).click();
+    harness.run_steps(3);
+    assert_eq!(harness.state().page(), &Page::Result(best.entry.f.clone()));
+    harness.get_by_label("Speeds");
+    harness.get_by_label("8.5, 9.5, 10.0... km/h");
+    harness.get_by_label("★ Best");
+}

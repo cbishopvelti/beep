@@ -36,7 +36,7 @@ the same on every pull request (`.github/workflows/test.yml`).
 | `widget.test.js` | The clock widget (`widget.js`). |
 | `export.test.js` | The App Loader's export (`beeplog.js`): a log the watch wrote, as TCX and CSV. |
 | `install.test.js` | `metadata.json` for the App Loader, and the Web IDE installer (`npm run bundle`). |
-| `sync.test.js` | The sync with the phone app (`sync.js` and the boot file's `GB()`), message by message, as `docs/DEVELOPMENT.md` "The watch link" lists them. |
+| `sync.test.js` | The sync with the phone app (`sync.js` and the boot file's `GB()`), message by message, as `docs/DEVELOPMENT.md` "The watch link" lists them. The speeds (`p`) both ways: the tests give the engine module a `PROGS`, or take it away, so they hold with an engine that has speed progressions and one that hasn't. |
 | `console.test.js` | That nothing Beep Test sends or gets makes Android Integration print to the console, where Gadgetbridge would pop up "Malformed JSON". |
 | `fixtures.test.js` | The files shared with the phone app's tests (below). |
 

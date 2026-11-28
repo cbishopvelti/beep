@@ -41,11 +41,19 @@ function joined(got, at) {
 
 // ---------- state ----------
 
+/* Whether the installed engine has speed progressions (lib.js PROGS, the
+   Speeds setting): state carries p only then. */
+const hasProgs = h => h.eval(`!!${BT}.PROGS`);
+/* lib.js's PROGS, as an engine with the Speeds setting has them */
+const PROGS = [[8, 9], [8, 8.5], [8.5, 9.5]];
+
 test("sync with nothing on the watch: state with every extra, as strings", async h => {
   await h.connect();
   await h.gb({ t: "beeptest-sync" });
   const s = last(h);
-  assert.eq(s, { event: "state", v: meta.version, m: "20", gps: "false", run: "", hist: "0:0", del: "" });
+  const want = { event: "state", v: meta.version, m: "20", gps: "false", run: "", hist: "0:0", del: "" };
+  if (hasProgs(h)) want.p = "0";
+  assert.eq(s, want);
   const m = h.sent().filter(m => m.t == "intent").pop();
   assert.eq([m.target, m.package, m.action], ["broadcastreceiver", "com.cbishopvelti.beep", "com.cbishopvelti.beep.WATCH"]);
 });
@@ -307,9 +315,10 @@ test("get: a test started mid-transfer stops it (busy), and its cues are on time
   const pieces = got.filter(e => e.event == "log").length;
   await h.wait(30000);
   assert.eq(ours(h).filter(e => e.event == "log").length, pieces, "no more pieces during the test");
-  // the cues: two at the start, then one per 9 s shuttle (20 m at 8 km/h)
+  // the cues: the level's at the start (however many buzzes it has), then
+  // one per 9 s shuttle (20 m at 8 km/h)
   const buzz = h.eval("BUZZ").map(b => +(b[0] - t0).toFixed(2));
-  assert.eq(buzz.slice(2, 5), [9, 18, 27], "shuttle cues at 9, 18, 27 s: " + buzz);
+  assert.eq(buzz.filter(t => t > 1).slice(0, 3), [9, 18, 27], "shuttle cues at 9, 18, 27 s: " + buzz);
 });
 
 test("pacing: the watch's timers run between pieces", async h => {
@@ -339,6 +348,38 @@ test("set: saves the course and GPS, answers state", async h => {
   assert.eq([last(h).m, last(h).gps], ["15", "false"]);
   await h.gb({ t: "beeptest-set", m: 20 });
   assert.eq(last(h).m, "20");
+});
+
+test("set and state: an engine without speed progressions has no p, and a p is ignored", async h => {
+  await h.connect();
+  h.tx(`(function(b){delete b.PROGS})(${BT})`);
+  await h.gb({ t: "beeptest-set", m: 15, p: 1 });
+  assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { m: 15 });
+  assert.eq(last(h).event, "state");
+  assert(!("p" in last(h)), "no p: " + JSON.stringify(last(h)));
+});
+
+test("set and state: with speed progressions, state says p and set takes a valid one", async h => {
+  await h.connect();
+  h.tx(`${BT}.PROGS=${JSON.stringify(PROGS)}`);
+  await h.gb({ t: "beeptest-sync" });
+  assert.eq(last(h).p, "0", "the standard speeds when none is set");
+  await h.gb({ t: "beeptest-set", p: 2 });
+  assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { p: 2 });
+  assert.eq([last(h).event, last(h).p, last(h).m], ["state", "2", "20"]);
+  // ignored, as a bad m is: past the end, not a whole number, not a number
+  for (const p of [3, -1, 1.5, "1", true, null]) {
+    await h.gb({ t: "beeptest-set", p: p, gps: true });
+    assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { p: 2, gps: true }, JSON.stringify(p));
+    assert.eq(last(h).p, "2");
+  }
+  await h.gb({ t: "beeptest-set", m: 15, gps: false, p: 0 });
+  assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { p: 0, gps: false, m: 15 });
+  assert.eq([last(h).m, last(h).gps, last(h).p], ["15", "false", "0"]);
+  // a p in the settings file the engine doesn't have reads as 0, as app.js reads it
+  h.tx('require("Storage").writeJSON("beeptest.settings.json",{p:7})');
+  await h.gb({ t: "beeptest-sync" });
+  assert.eq(last(h).p, "0");
 });
 
 test("set: the open app shows the new course on its start screen, and starts with it", async h => {

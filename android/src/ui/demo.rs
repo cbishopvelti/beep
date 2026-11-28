@@ -3,12 +3,14 @@
 //! tests. Never called on the phone.
 //!
 //! [`fill`] writes, through the store's own calls, a dozen results over the
-//! last five months on both courses, getting better, each with a heart rate
-//! log a line a second as the watch's `lib.js` writes it (heart rate
-//! rising through the levels, a few low-confidence readings, one test with
-//! GPS speed), the newest one's log still arriving, and an old one the
-//! watch had no log for; what the watch last said (version, 20 m, GPS off,
-//! optionally a test running) and when it was heard from and synced.
+//! last five months on both courses (two of them on the faster speeds,
+//! 8.5, 9.5, 10.0... km/h), getting better, each with a heart rate log a
+//! line a second as the watch's `lib.js` writes it (heart rate rising
+//! through the levels, a few low-confidence readings, one test with GPS
+//! speed), the newest one's log still arriving, and an old one the watch
+//! had no log for; what the watch last said (version, 20 m, GPS off, the
+//! standard speeds, optionally a test running) and when it was heard from
+//! and synced.
 
 use crate::health::{self, Link};
 use crate::link::Hist;
@@ -17,21 +19,21 @@ use crate::tables;
 use std::io;
 use std::path::Path;
 
-/// What's in the demo: (days ago, course, shuttles completed in all, with
-/// GPS). Oldest first.
-const TESTS: [(i64, u32, u32, bool); 12] = [
-    (150, 20, 52, false),
-    (136, 20, 55, false),
-    (121, 15, 64, false),
-    (107, 20, 58, false),
-    (93, 20, 57, false),
-    (80, 15, 70, false),
-    (66, 20, 63, true),
-    (52, 20, 66, false),
-    (38, 15, 75, false),
-    (24, 20, 69, false),
-    (10, 20, 73, false),
-    (1, 15, 79, false),
+/// What's in the demo: (days ago, course, speed progression, shuttles
+/// completed in all, with GPS). Oldest first.
+const TESTS: [(i64, u32, u32, u32, bool); 12] = [
+    (150, 20, 0, 52, false),
+    (136, 20, 0, 55, false),
+    (121, 15, 0, 64, false),
+    (107, 20, 0, 58, false),
+    (93, 20, 0, 57, false),
+    (80, 15, 0, 70, false),
+    (66, 20, 0, 63, true),
+    (52, 20, 2, 58, false),
+    (38, 15, 0, 75, false),
+    (24, 20, 2, 62, false),
+    (10, 20, 0, 73, false),
+    (1, 15, 0, 79, false),
 ];
 
 /// Which of [`TESTS`] the watch had no log for (`logend` -1).
@@ -52,27 +54,35 @@ impl Noise {
     }
 }
 
-/// One test's log, as `lib.js` writes it, and its history entry.
-pub fn test_log(start_s: i64, m: u32, target: u32, gps: bool, seed: u64) -> (String, Entry) {
+/// One test's log, as `lib.js` writes it (with the Speeds setting: the
+/// start line ends with the progression `p`), and its history entry.
+pub fn test_log(
+    start_s: i64,
+    m: u32,
+    p: u32,
+    target: u32,
+    gps: bool,
+    seed: u64,
+) -> (String, Entry) {
     let mut noise = Noise(seed);
     // When the target shuttle ends, and a little into the next.
     let mut t_end = 0.0;
-    while tables::position(m, t_end).total < target {
+    while tables::position(m, t_end, p).total < target {
         t_end += 0.5;
     }
     t_end += 2.0 + 3.0 * noise.next();
     let tz = -watch_offset_min(start_s);
-    let mut text = format!("start,{},{tz},{m}\n", start_s * 1000);
+    let mut text = format!("start,{},{tz},{m},{p}\n", start_s * 1000);
     let (mut hr_sum, mut hr_n, mut hr_max) = (0.0, 0u32, 0u32);
     let mut bpm: f64 = 88.0 + 6.0 * noise.next();
     let peak = 186.0 + 8.0 * noise.next();
     let mut low_left = 0;
     let mut t = 0.0;
     while t <= t_end {
-        let p = tables::position(m, t);
-        let into = ((t - p.shuttle_start) / (p.next_at - p.shuttle_start)).clamp(0.0, 1.0);
-        let dist = f64::from(p.total * m) + into * f64::from(m);
-        let want = (110.0 + 6.5 * f64::from(p.level) + t / 40.0).min(peak);
+        let at = tables::position(m, t, p);
+        let into = ((t - at.shuttle_start) / (at.next_at - at.shuttle_start)).clamp(0.0, 1.0);
+        let dist = f64::from(at.total * m) + into * f64::from(m);
+        let want = (110.0 + 6.5 * f64::from(at.level) + t / 40.0).min(peak);
         bpm += (want - bpm) * 0.06 + (noise.next() - 0.5) * 3.0;
         // Now and then the sensor loses the wrist for a few seconds.
         if low_left == 0 && noise.next() < 0.015 {
@@ -88,12 +98,12 @@ pub fn test_log(start_s: i64, m: u32, target: u32, gps: bool, seed: u64) -> (Str
         hr_sum += f64::from(read);
         hr_n += 1;
         hr_max = hr_max.max(read);
-        text += &format!("{t:.1},{read},{conf},{},{},{dist:.1}", p.level, p.shuttle);
+        text += &format!("{t:.1},{read},{conf},{},{},{dist:.1}", at.level, at.shuttle);
         if gps {
             // Running up and down a 20 m line, slowing at each turn.
             let speed =
-                tables::speed(p.level) * (0.75 + 0.35 * (into * std::f64::consts::PI).sin());
-            let along = if p.total.is_multiple_of(2) {
+                tables::speed(at.level, p) * (0.75 + 0.35 * (into * std::f64::consts::PI).sin());
+            let along = if at.total.is_multiple_of(2) {
                 into
             } else {
                 1.0 - into
@@ -105,14 +115,14 @@ pub fn test_log(start_s: i64, m: u32, target: u32, gps: bool, seed: u64) -> (Str
         text.push('\n');
         t += 1.0;
     }
-    let p = tables::position(m, t_end);
-    let r = tables::result(m, &p);
+    let end = tables::position(m, t_end, p);
+    let r = tables::result(m, &end, p);
     let avg = if hr_n > 0 {
         (hr_sum / f64::from(hr_n)).round() as u32
     } else {
         0
     };
-    let d = p.total * m;
+    let d = end.total * m;
     text += &format!(
         "end,{t_end:.1},{},{},{d},{hr_max},{avg}\n",
         r.level, r.shuttle
@@ -121,6 +131,7 @@ pub fn test_log(start_s: i64, m: u32, target: u32, gps: bool, seed: u64) -> (Str
         f: format!("beeptest.{start_s}.csv"),
         t: start_s * 1000,
         m,
+        p,
         l: r.level,
         s: r.shuttle,
         d,
@@ -144,7 +155,7 @@ fn history_json(entries: &[Entry]) -> String {
         .iter()
         .map(|e| {
             serde_json::json!({
-                "t": e.t, "m": e.m, "l": e.l, "s": e.s, "d": e.d,
+                "t": e.t, "m": e.m, "p": e.p, "l": e.l, "s": e.s, "d": e.d,
                 "dur": e.dur, "max": e.max, "avg": e.avg, "f": e.f,
             })
         })
@@ -158,13 +169,13 @@ pub fn fill(dir: &Path, now_s: i64, running: bool) -> io::Result<()> {
     let store = Store::open(dir)?;
     let mut entries = Vec::new();
     let mut logs = Vec::new();
-    for (i, &(days, m, target, gps)) in TESTS.iter().enumerate() {
+    for (i, &(days, m, p, target, gps)) in TESTS.iter().enumerate() {
         // Early evening, on the day.
         let day = now_s - days * 86_400;
         let start = day - day.rem_euclid(86_400) + 17 * 3600 + 1800 + (i as i64 * 7 * 60) % 3600
             - i64::from(crate::watch_ble::utc_offset(day));
         let start = start.min(now_s - 3600);
-        let (text, entry) = test_log(start, m, target, gps, 7 + i as u64);
+        let (text, entry) = test_log(start, m, p, target, gps, 7 + i as u64);
         logs.push((entry.f.clone(), text));
         entries.push(entry);
     }
@@ -190,6 +201,7 @@ pub fn fill(dir: &Path, now_s: i64, running: bool) -> io::Result<()> {
         version: Some("0.05".into()),
         m: Some(20),
         gps: Some(false),
+        p: Some(0),
         run: running.then(|| format!("beeptest.{}.csv", now_s - 95)),
         heard: Some(now_s - 240),
     })?;
@@ -206,7 +218,7 @@ mod tests {
 
     #[test]
     fn a_demo_log_reads_as_the_watch_s_would() {
-        let (text, entry) = test_log(1_790_000_000, 20, 63, true, 3);
+        let (text, entry) = test_log(1_790_000_000, 20, 0, 63, true, 3);
         let log = beeplog::parse(&text);
         let end = log.end.expect("an end line");
         assert_eq!(
@@ -221,6 +233,12 @@ mod tests {
         let rows = beeplog::level_rows(&log, 0.0);
         assert!(rows.last().unwrap().level >= entry.l);
         assert!(entry.max > entry.avg && entry.avg > 100, "{entry:?}");
+        // On other speeds: its own tables, and the start line says which.
+        let (text, entry) = test_log(1_790_000_000, 15, 1, 63, false, 3);
+        assert!(text.starts_with("start,1790000000000,"));
+        assert!(text.lines().next().unwrap().ends_with(",15,1"));
+        assert_eq!((entry.p, entry.total_shuttles()), (1, 63));
+        assert_eq!(beeplog::parse(&text).progression, 1);
     }
 
     #[test]
@@ -240,7 +258,9 @@ mod tests {
                 .count(),
             10
         );
-        assert_eq!(store.bests().len(), 2);
+        // 20 m and 15 m on the standard speeds, and 20 m on the faster.
+        assert_eq!(store.bests().len(), 3);
+        assert_eq!(results.iter().filter(|r| r.entry.p == 2).count(), 2);
         assert!(store.watch_state().run.is_some());
         // Filling again leaves it as it was.
         fill(dir.path(), 1_795_000_000, false).unwrap();

@@ -108,11 +108,16 @@ pub enum Input {
     /// delete it too. If its log was being fetched, the round ends there
     /// (the watch's answer starts the next).
     Delete(String),
-    /// The user changed the watch's course (20 or 15) or GPS setting on the
-    /// Watch page: a `beeptest-set` line. The page shows the watch's own
-    /// settings once its `state` answers. A course other than 20 or 15 is
-    /// left out.
-    SetWatch { m: Option<u32>, gps: Option<bool> },
+    /// The user changed the watch's course (20 or 15), GPS setting or speed
+    /// progression (0, 1 or 2) on the Watch page: a `beeptest-set` line.
+    /// The page shows the watch's own settings once its `state` answers. A
+    /// course other than 20 or 15, or a progression the phone doesn't know,
+    /// is left out.
+    SetWatch {
+        m: Option<u32>,
+        gps: Option<bool>,
+        p: Option<u32>,
+    },
 }
 
 /// What [`Engine::handle`] says to do.
@@ -266,10 +271,11 @@ impl Engine {
                 }
                 self.ask(store, now_ms, &mut out);
             }
-            Input::SetWatch { m, gps } => {
+            Input::SetWatch { m, gps, p } => {
                 let m = m.filter(|m| *m == 20 || *m == 15);
-                if m.is_some() || gps.is_some() {
-                    out.lines.push(link::set_line(m, gps));
+                let p = p.filter(|p| crate::tables::is_progression(*p));
+                if m.is_some() || gps.is_some() || p.is_some() {
+                    out.lines.push(link::set_line(m, gps, p));
                 }
             }
             Input::Tick => self.tick(store, now_ms, &mut out),
@@ -351,6 +357,7 @@ impl Engine {
             version: Some(s.version.clone()),
             m: Some(s.m),
             gps: Some(s.gps),
+            p: s.p,
             run: s.run.clone(),
             heard: Some(now_ms.div_euclid(1000)),
         };
@@ -640,6 +647,7 @@ mod tests {
             f: f.into(),
             t,
             m: 20,
+            p: 0,
             l: 2,
             s: 1,
             d: 160,
@@ -668,6 +676,7 @@ mod tests {
             version: "0.05".into(),
             m: 20,
             gps: false,
+            p: None,
             run: run.map(str::to_string),
             hist,
             del: del.iter().map(|s| s.to_string()).collect(),
@@ -1163,26 +1172,62 @@ mod tests {
     }
 
     #[test]
+    fn the_watchs_speeds_are_kept_when_it_has_them() {
+        let mut t = T::new();
+        let Input::Watch(WatchEvent::State(s)) = state(Hist::default(), None, &[]) else {
+            unreachable!()
+        };
+        t.go(Input::Watch(WatchEvent::State(State {
+            p: Some(2),
+            ..s.clone()
+        })));
+        assert_eq!(t.store.watch_state().p, Some(2));
+        // A watch app without the Speeds setting (installed over, say).
+        t.go(Input::Watch(WatchEvent::State(s)));
+        assert_eq!(t.store.watch_state().p, None);
+        assert_eq!(t.store.watch_state().m, Some(20));
+    }
+
+    #[test]
     fn set_watch_lines() {
         let mut t = T::new();
         assert_eq!(
             t.go(Input::SetWatch {
                 m: Some(15),
-                gps: None
+                gps: None,
+                p: None
             }),
-            vec![link::set_line(Some(15), None)]
+            vec![link::set_line(Some(15), None, None)]
         );
         assert_eq!(
             t.go(Input::SetWatch {
                 m: Some(17),
-                gps: Some(true)
+                gps: Some(true),
+                p: None
             }),
-            vec![link::set_line(None, Some(true))]
+            vec![link::set_line(None, Some(true), None)]
+        );
+        assert_eq!(
+            t.go(Input::SetWatch {
+                m: None,
+                gps: None,
+                p: Some(2)
+            }),
+            vec![link::set_line(None, None, Some(2))]
+        );
+        assert_eq!(
+            t.go(Input::SetWatch {
+                m: Some(20),
+                gps: None,
+                p: Some(3)
+            }),
+            vec![link::set_line(Some(20), None, None)]
         );
         assert_eq!(
             t.go(Input::SetWatch {
                 m: Some(17),
-                gps: None
+                gps: None,
+                p: Some(9)
             }),
             Vec::<String>::new()
         );

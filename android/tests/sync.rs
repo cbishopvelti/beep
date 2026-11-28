@@ -5,6 +5,10 @@
 //! the lines between it and the phone, dropping, duplicating and reordering
 //! them when it's lossy.
 //!
+//! Half the seeds' watches (the even ones) have speed progressions (the Speeds setting:
+//! `state` says `p`, `set` takes it, results carry it) and half are from
+//! before it (no `p` anywhere, and a `p` set from the phone ignored).
+//!
 //! Each seeded run throws a while of chaos at both ends (tests run, are
 //! cancelled and deleted on the watch, results deleted on the phone, the
 //! settings changed, the phone app killed and started again, the watch
@@ -12,7 +16,8 @@
 //! sending junk), then lets the link settle and
 //! checks that the phone ended up with what the watch has: every result
 //! the watch lists and the phone didn't delete, with its log byte for byte,
-//! nothing deleted on either side, and the results the watch forgot kept.
+//! nothing deleted on either side, the results the watch forgot kept, and
+//! the watch's settings as it has them.
 //! `BEEP_SEEDS=500 cargo test --test sync` runs more of them.
 
 use beep_android::link::{self, HISTORY, WatchEvent};
@@ -70,6 +75,10 @@ struct FakeWatch {
     del: Vec<String>,
     m: u32,
     gps: bool,
+    /// Whether its engine has speed progressions (`lib.js` `PROGS`), and
+    /// the one it's set to.
+    progs: bool,
+    p: u32,
     run: Option<String>,
     xfer: Option<Xfer>,
     connected: bool,
@@ -84,13 +93,15 @@ struct FakeWatch {
 }
 
 impl FakeWatch {
-    fn new() -> FakeWatch {
+    fn new(progs: bool) -> FakeWatch {
         FakeWatch {
             files: BTreeMap::new(),
             history: None,
             del: Vec::new(),
             m: 20,
             gps: false,
+            progs,
+            p: 0,
             run: None,
             xfer: None,
             connected: true,
@@ -101,14 +112,20 @@ impl FakeWatch {
         }
     }
 
-    /// `JSON.stringify` of the history, keys in `lib.js` `stop`'s order.
+    /// `JSON.stringify` of the history, keys in `lib.js` `stop`'s order
+    /// (`p` after `m` with progressions, none without).
     fn history_json(&self) -> Option<Vec<u8>> {
         let h = self.history.as_ref()?;
         let items: Vec<String> = h
             .iter()
             .map(|e| {
+                let p = if self.progs {
+                    format!(",\"p\":{}", e.p)
+                } else {
+                    String::new()
+                };
                 format!(
-                    "{{\"t\":{},\"m\":{},\"l\":{},\"s\":{},\"d\":{},\"dur\":{},\"max\":{},\"avg\":{},\"f\":\"{}\"}}",
+                    "{{\"t\":{},\"m\":{}{p},\"l\":{},\"s\":{},\"d\":{},\"dur\":{},\"max\":{},\"avg\":{},\"f\":\"{}\"}}",
                     e.t, e.m, e.l, e.s, e.d, e.dur, e.max, e.avg, e.f
                 )
             })
@@ -136,7 +153,7 @@ impl FakeWatch {
             Some(h) => format!("{}:{}", h.len(), link::crc32(&h)),
             None => "0:0".into(),
         };
-        self.send(&[
+        let mut extra = vec![
             ("event", "state".into()),
             ("v", "0.05".into()),
             ("m", self.m.to_string()),
@@ -144,7 +161,11 @@ impl FakeWatch {
             ("run", self.run.clone().unwrap_or_default()),
             ("hist", hist),
             ("del", self.del.join(",")),
-        ]);
+        ];
+        if self.progs {
+            extra.push(("p", self.p.to_string()));
+        }
+        self.send(&extra);
     }
 
     fn end(&mut self, len: i64) {
@@ -229,6 +250,10 @@ impl FakeWatch {
                 }
                 if let Some(gps) = e["gps"].as_bool() {
                     self.gps = gps;
+                }
+                // `P[e.p]`: a whole number below 3 (a number, not "1").
+                if let Some(p) = e["p"].as_u64().filter(|p| self.progs && *p < 3) {
+                    self.p = p as u32;
                 }
                 self.state();
             }
@@ -319,6 +344,7 @@ impl FakeWatch {
             f,
             t: start as i64 * 1000 + rng.below(1000) as i64,
             m: self.m,
+            p: self.p,
             l: rng.below(12) as u32,
             s: rng.below(10) as u32,
             d: rng.below(3000) as u32,
@@ -362,6 +388,9 @@ impl FakeWatch {
     fn settings(&mut self, rng: &mut Rng) {
         self.m = if rng.chance(0.5) { 20 } else { 15 };
         self.gps = rng.chance(0.5);
+        if self.progs {
+            self.p = rng.below(3) as u32;
+        }
         self.state();
     }
 
@@ -532,7 +561,7 @@ struct World {
 impl World {
     fn new(seed: u64) -> World {
         let mut rng = Rng::new(seed);
-        let mut watch = FakeWatch::new();
+        let mut watch = FakeWatch::new(seed.is_multiple_of(2));
         // Results from before the phone app, some past the 30 it keeps.
         watch.connected = false;
         for _ in 0..20 + rng.below(20) {
@@ -558,7 +587,7 @@ impl World {
     fn with(seed: u64, n: usize) -> World {
         let mut w = World::new(seed);
         w.link.lossy = false;
-        w.watch = FakeWatch::new();
+        w.watch = FakeWatch::new(seed.is_multiple_of(2));
         w.watch.connected = false;
         for _ in 0..n {
             let r = &mut w.rng;
@@ -645,7 +674,10 @@ impl World {
             62..=64 => {
                 let m = Some(if r.chance(0.5) { 20 } else { 15 });
                 let gps = Some(r.chance(0.5));
-                self.phone(Input::SetWatch { m, gps });
+                // The Watch page offers speeds only when the watch has
+                // them, but a set with p goes to an older watch as well.
+                let p = r.chance(0.5).then(|| r.below(3) as u32);
+                self.phone(Input::SetWatch { m, gps, p });
             }
             65..=68 => {
                 self.seen.restarts += 1;
@@ -816,6 +848,19 @@ impl World {
             matches!(self.phone.engine.progress(), Progress::Done { failed, .. } if failed.is_empty()),
             "{}",
             ctx(&format!("{:?}", self.phone.engine.progress()))
+        );
+        // The watch's settings as it has them (its speeds only when it has
+        // the setting).
+        let w = store.watch_state();
+        assert_eq!(
+            (w.m, w.gps, w.p),
+            (
+                Some(self.watch.m),
+                Some(self.watch.gps),
+                self.watch.progs.then_some(self.watch.p)
+            ),
+            "{}",
+            ctx("the watch's settings")
         );
         only_the_stores_files(self.phone.root.path(), &self.phone.dir());
     }
@@ -1127,4 +1172,46 @@ fn a_watch_that_never_finishes_a_log_is_given_up_on_for_the_round() {
     // A good link next round fetches them.
     w.settle();
     w.check(5);
+}
+
+#[test]
+fn the_speeds_go_both_ways_with_a_watch_that_has_them() {
+    // Seed 2: a watch with speed progressions.
+    let mut w = World::with(2, 2);
+    assert!(w.watch.progs);
+    w.settle();
+    assert_eq!(w.phone.store.watch_state().p, Some(0));
+    w.phone(Input::SetWatch {
+        m: None,
+        gps: None,
+        p: Some(2),
+    });
+    w.settle();
+    assert_eq!(w.watch.p, 2);
+    assert_eq!(w.phone.store.watch_state().p, Some(2));
+    // The next test runs them, and its result says so on the phone.
+    let r = &mut w.rng;
+    w.watch.start_test(r);
+    w.watch.stop_test(r);
+    w.flush_watch();
+    w.settle();
+    let newest = &w.phone.store.results()[0];
+    assert_eq!(newest.entry.p, 2);
+    assert_eq!(newest.log, LogState::Complete);
+    w.check(2);
+
+    // Seed 3: a watch from before the Speeds setting ignores a p, and the
+    // phone knows it has none.
+    let mut w = World::with(3, 2);
+    assert!(!w.watch.progs);
+    w.phone(Input::SetWatch {
+        m: Some(15),
+        gps: None,
+        p: Some(1),
+    });
+    w.settle();
+    assert_eq!((w.watch.m, w.watch.p), (15, 0));
+    assert_eq!(w.phone.store.watch_state().p, None);
+    assert!(w.phone.store.results().iter().all(|r| r.entry.p == 0));
+    w.check(3);
 }

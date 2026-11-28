@@ -1,4 +1,5 @@
-//! A result's page (from a card on Results): the summary as on its card;
+//! A result's page (from a card on Results): the summary as on its card
+//! (with the speeds it ran, when they aren't the standard ones);
 //! the heart rate over the test (`beeplog::hr_series`) with the levels
 //! marked; a row per level (`beeplog::level_rows`: time, average and max
 //! heart rate, GPS speed when recorded); Share TCX and Share CSV
@@ -110,7 +111,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, f: &str) {
         super::empty(ui, "Not here any more", "This result has been deleted.");
         return;
     };
-    let best = app.view.bests.get(&r.entry.m) == Some(&r.entry.f);
+    let best = app.view.is_best(&r);
     summary(ui, &r, best);
     ui.add_space(8.0);
     let fetching =
@@ -164,6 +165,9 @@ fn summary(ui: &mut egui::Ui, r: &TestResult, best: bool) {
             ui.label(RichText::new(format!("on {}", text.course)).weak());
         });
         let e = &r.entry;
+        if let Some(speeds) = &text.speeds {
+            status::fact(ui, "Speeds", speeds);
+        }
         status::fact(ui, "Distance", &format!("{} m", e.d));
         status::fact(ui, "Time", &super::duration(f64::from(e.dur)));
         status::fact(

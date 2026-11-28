@@ -1,7 +1,8 @@
 //! The two charts, drawn with egui's painter (no plotting crate): the
 //! progress chart on Results (each course's results over time, as shuttles
-//! completed in all, a line a course) and the heart rate over a test on a
-//! result's page, with its levels marked as bands.
+//! completed in all, a line a course and speed progression, since their
+//! shuttles aren't the same) and the heart rate over a test on a result's
+//! page, with its levels marked as bands.
 //!
 //! What's worked out is apart from the drawing ([`Scale`], [`nice_range`],
 //! [`progress_series`], [`hr_segments`]), so the tests check it without
@@ -11,15 +12,42 @@ use crate::beeplog::LevelRow;
 use crate::store::TestResult;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Shape, Stroke, TextStyle, Vec2, pos2};
 
-/// The 15 m course's line (the 20 m one is the accent): an orange that
-/// reads on both themes.
+/// The 15 m course's line on the standard speeds (the 20 m one is the
+/// accent): an orange that reads on both themes.
 pub const COURSE_15: Color32 = Color32::from_rgb(0xe8, 0x7a, 0x2e);
+/// The lines on the other speed progressions, by progression (1, then 2):
+/// on 20 m a violet and a teal, on 15 m a magenta and an olive, all
+/// reading on both themes and apart from the accent, the orange and the
+/// heart rate's red.
+const OTHER_20: [Color32; 2] = [
+    Color32::from_rgb(0x8e, 0x5c, 0xe0),
+    Color32::from_rgb(0x1f, 0xa5, 0x9a),
+];
+const OTHER_15: [Color32; 2] = [
+    Color32::from_rgb(0xc8, 0x4c, 0xb4),
+    Color32::from_rgb(0x9a, 0x8a, 0x1c),
+];
 /// The heart rate's line.
 pub const HEART: Color32 = Color32::from_rgb(0xe0, 0x4a, 0x5a);
 
-/// A course's line's colour.
-pub fn course_color(m: u32) -> Color32 {
-    if m == 15 { COURSE_15 } else { super::ACCENT }
+/// The colour of the line for course `m` and speed progression `p`.
+pub fn series_color(m: u32, p: u32) -> Color32 {
+    match (m == 15, p) {
+        (false, 1 | 2) => OTHER_20[p as usize - 1],
+        (true, 1 | 2) => OTHER_15[p as usize - 1],
+        (true, _) => COURSE_15,
+        (false, _) => super::ACCENT,
+    }
+}
+
+/// What the key calls a line: "20 m", and on other speeds than the
+/// standard ones "20 m, 8.0, 8.5, 9.0... km/h".
+pub fn series_label(m: u32, p: u32) -> String {
+    if p == 0 {
+        format!("{m} m")
+    } else {
+        format!("{m} m, {}", crate::tables::speeds_text(p))
+    }
 }
 
 /// What a chart shows, in its own units, and where that goes on the
@@ -62,27 +90,31 @@ pub fn nice_range(lo: f64, hi: f64, step: f64) -> (f64, f64) {
     (a, b)
 }
 
-/// A course's results over time, oldest first: (when, Unix s; shuttles
-/// completed in all).
+/// A course's results on one speed progression over time, oldest first:
+/// (when, Unix s; shuttles completed in all).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Series {
     pub m: u32,
+    pub p: u32,
     pub points: Vec<(i64, u32)>,
 }
 
-/// The progress chart's lines: one a course that has results, 20 m first,
+/// The progress chart's lines: one for each course and speed progression
+/// that has results, 20 m first and the standard speeds first on each,
 /// each oldest first.
 pub fn progress_series(results: &[TestResult]) -> Vec<Series> {
+    let progressions = 0..crate::tables::PROGRESSIONS.len() as u32;
     crate::tables::COURSES
         .iter()
-        .filter_map(|&m| {
+        .flat_map(|&m| progressions.clone().map(move |p| (m, p)))
+        .filter_map(|(m, p)| {
             let mut points: Vec<(i64, u32)> = results
                 .iter()
-                .filter(|r| r.entry.m == m)
+                .filter(|r| r.entry.m == m && r.entry.p == p)
                 .map(|r| (r.entry.t.div_euclid(1000), r.entry.total_shuttles()))
                 .collect();
             points.sort();
-            (!points.is_empty()).then_some(Series { m, points })
+            (!points.is_empty()).then_some(Series { m, p, points })
         })
         .collect()
 }
@@ -241,7 +273,7 @@ pub fn progress(ui: &mut egui::Ui, series: &[Series], height: f32) {
         }
     }
     for s in series {
-        let color = course_color(s.m);
+        let color = series_color(s.m, s.p);
         let points: Vec<Pos2> = s
             .points
             .iter()
@@ -357,11 +389,17 @@ mod tests {
     use crate::store::{Entry, LogState};
 
     fn result(t_s: i64, m: u32, l: u32, s: u32) -> TestResult {
+        on(t_s, m, 0, l, s)
+    }
+
+    /// A result on speed progression `p`.
+    fn on(t_s: i64, m: u32, p: u32, l: u32, s: u32) -> TestResult {
         TestResult {
             entry: Entry {
                 f: format!("beeptest.{t_s}.csv"),
                 t: t_s * 1000,
                 m,
+                p,
                 l,
                 s,
                 d: 0,
@@ -412,8 +450,8 @@ mod tests {
         assert_eq!(
             series[0].points,
             vec![
-                (1_000_000, crate::tables::total_shuttles(20, 8, 1)),
-                (3_000_000, crate::tables::total_shuttles(20, 9, 4)),
+                (1_000_000, crate::tables::total_shuttles(20, 8, 1, 0)),
+                (3_000_000, crate::tables::total_shuttles(20, 9, 4, 0)),
             ]
         );
         assert_eq!(series[1].m, 15);
@@ -430,6 +468,43 @@ mod tests {
         }
         assert_eq!(scale.y0 % 10.0, 0.0);
         assert_eq!(scale.y1 % 10.0, 0.0);
+    }
+
+    #[test]
+    fn progress_is_a_line_a_course_and_speed_progression() {
+        let results = vec![
+            on(6_000_000, 20, 2, 9, 4),
+            on(5_000_000, 15, 1, 7, 1),
+            on(4_000_000, 20, 0, 9, 4),
+            on(3_000_000, 20, 2, 8, 1),
+            on(2_000_000, 15, 0, 6, 2),
+        ];
+        let series = progress_series(&results);
+        let lines: Vec<(u32, u32, usize)> =
+            series.iter().map(|s| (s.m, s.p, s.points.len())).collect();
+        assert_eq!(lines, vec![(20, 0, 1), (20, 2, 2), (15, 0, 1), (15, 1, 1)]);
+        // Each counted on its own tables: 9.4 is 76 shuttles on the
+        // standard speeds and 80 on 8.5, 9.5, 10.0... (node, lib.js).
+        assert_eq!(series[0].points, vec![(4_000_000, 76)]);
+        assert_eq!(series[1].points[1], (6_000_000, 80));
+        assert_eq!(
+            series[3].points,
+            vec![(5_000_000, 9 + 10 + 11 + 11 + 12 + 12 + 1)]
+        );
+        // Each line its own colour, and its own words in the key.
+        let colors: Vec<Color32> = series.iter().map(|s| series_color(s.m, s.p)).collect();
+        for (i, c) in colors.iter().enumerate() {
+            assert!(!colors[..i].contains(c), "{colors:?}");
+        }
+        let all: Vec<Color32> = [20, 15]
+            .into_iter()
+            .flat_map(|m| (0..3).map(move |p| series_color(m, p)))
+            .collect();
+        for (i, c) in all.iter().enumerate() {
+            assert!(!all[..i].contains(c) && *c != HEART, "{all:?}");
+        }
+        assert_eq!(series_label(20, 0), "20 m");
+        assert_eq!(series_label(15, 2), "15 m, 8.5, 9.5, 10.0... km/h");
     }
 
     #[test]

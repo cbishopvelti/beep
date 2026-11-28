@@ -30,9 +30,12 @@ function rng(seed) {
 function fmtNum(v, dp) { return isNaN(v) ? "" : v.toFixed(dp); }
 
 /* A test's log as lib.js writes it: a sample a second for `dur` s on an
-   m metre course, the heart rate climbing, then the end line. */
+   m metre course, the heart rate climbing, then the end line. With o.p,
+   the start line has the fifth field a watch with the Speeds setting
+   writes (the progression), which beeplog.js ignores. */
 function test(o) {
-  var r = rng(o.seed || 1), s = "start," + o.start + "," + (o.tz || 0) + "," + o.m + "\n";
+  var r = rng(o.seed || 1), s = "start," + o.start + "," + (o.tz || 0) + "," + o.m +
+    (o.p !== undefined ? "," + o.p : "") + "\n";
   var hrMax = 0, hrSum = 0, hrN = 0, p, t;
   for (t = 0; t <= o.dur; t += 1) {
     if (o.clockAt && t == o.clockAt) s += "clock," + o.clock.toFixed(3) + "\n";
@@ -93,6 +96,10 @@ const LOGS = {
   clock: test({ start: 1781172000000, tz: 300, m: 20, dur: 90, clockAt: 40, clock: 3600.25, seed: 3 }),
   // The watch went on logging while its menu was open: samples after the end.
   "after-end": test({ start: 1781085600000, tz: -60, m: 20, dur: 70, after: 5, seed: 4 }),
+  // A start line with the speed progression after the course (a watch with
+  // the Speeds setting): the same files as without it. (The samples are on
+  // the standard tables; what's checked is that the field changes nothing.)
+  speeds: test({ start: 1781431200000, tz: -60, m: 20, p: 2, dur: 100, seed: 8 }),
   // The watch stopped before it wrote the end (no result).
   unfinished: test({ start: 1781000000000, tz: -120, m: 15, dur: 45, unfinished: true, seed: 5 }),
   // Readings below 50% confidence, which min50 leaves out.

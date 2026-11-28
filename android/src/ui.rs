@@ -10,7 +10,7 @@
 //!   and Share CSV, Delete.
 //! - **Watch** (`ui/watch.rs`): how the watch is connected, when it was last
 //!   heard from and synced, its app's version, Sync now, and its course and
-//!   GPS settings.
+//!   GPS settings (and its speeds, when the watch's app has that setting).
 //! - **Settings** (`ui/settings.rs`): the theme, the direct link with its
 //!   picker, the app's version.
 //!
@@ -129,8 +129,9 @@ pub(crate) enum Dialog {
 pub(crate) struct View {
     /// Newest first.
     pub results: Vec<TestResult>,
-    /// The best result on each course: course (m) to its log's name.
-    pub bests: BTreeMap<u32, String>,
+    /// The best result on each course and speed progression: (course in
+    /// m, `p`) to its log's name.
+    pub bests: BTreeMap<(u32, u32), String>,
     pub watch: WatchState,
     /// The open result's log, read whole, while it's complete.
     pub log: Option<(String, beeplog::Log)>,
@@ -153,9 +154,15 @@ impl View {
     pub fn result(&self, f: &str) -> Option<&TestResult> {
         self.results.iter().find(|r| r.entry.f == f)
     }
+
+    /// Whether `r` is the best on its course and speed progression.
+    pub fn is_best(&self, r: &TestResult) -> bool {
+        self.bests.get(&(r.entry.m, r.entry.p)) == Some(&r.entry.f)
+    }
 }
 
-/// The accent: buttons, the selected page, switches, the 20 m line.
+/// The accent: buttons, the selected page, switches, the 20 m line (on
+/// the standard speeds).
 pub(crate) const ACCENT: Color32 = Color32::from_rgb(0x4f, 0x7c, 0xff);
 /// Green, amber and red: a dot's colours, as blink's Status page.
 pub(crate) const GREEN: Color32 = Color32::from_rgb(0x2e, 0xb8, 0x5c);
@@ -241,12 +248,12 @@ impl App {
         self.menu_open = true;
     }
 
-    /// Sends the watch a course (20 or 15) or GPS setting, as the Watch
-    /// page's controls do: the page shows it waiting for the watch's
-    /// answer (the desktop's screenshots use it).
-    pub fn set_watch(&mut self, m: Option<u32>, gps: Option<bool>) {
+    /// Sends the watch a course (20 or 15), GPS setting or speed
+    /// progression, as the Watch page's controls do: the page shows it
+    /// waiting for the watch's answer (the desktop's screenshots use it).
+    pub fn set_watch(&mut self, m: Option<u32>, gps: Option<bool>, p: Option<u32>) {
         self.reload();
-        self.watch.send(&self.view.watch, m, gps);
+        self.watch.send(&self.view.watch, m, gps, p);
     }
 
     /// Asks "Delete this result?" for the open result (the desktop's

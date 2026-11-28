@@ -113,7 +113,8 @@ sync with the watch:
 * Results and their heart rate logs come off the watch by themselves. The phone keeps them
   all (the watch only keeps its last 30).
 * A result deleted on either side is deleted on both.
-* The watch's course and GPS speed can be changed from the phone (the **Watch** page).
+* The watch's course and GPS speed (and its speeds, with a watch app that has the Speeds
+  setting) can be changed from the phone (the **Watch** page).
 * Each result has a heart rate chart with the levels marked, a table with a row per level,
   and **Share TCX** and **Share CSV** (to Strava, Garmin Connect, a mail, ...), with the same
   option to leave out low-confidence readings as the download page.

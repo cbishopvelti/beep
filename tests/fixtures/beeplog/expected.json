@@ -27,6 +27,13 @@
   "tcx50": "after-end.min50.tcx",
   "csv": "after-end.csv"
  },
+ "speeds": {
+  "resultText": "20m beep test result 2.4, 220 m",
+  "fileBase": "beeptest-20m-2026-06-14-11-00",
+  "tcx": "speeds.tcx",
+  "tcx50": "speeds.min50.tcx",
+  "csv": "speeds.csv"
+ },
  "unfinished": {
   "resultText": "15m beep test (incomplete log)",
   "fileBase": "beeptest-15m-2026-06-09-12-13",

@@ -3,7 +3,8 @@
 The phone app, written in Rust: an [egui](https://github.com/emilk/egui) UI (through eframe, on a
 `NativeActivity`), built the way blink's phone app is. It keeps the phone and the watch in sync:
 results and heart rate logs come off the watch by themselves, a delete on either side deletes on
-both, and the watch's course and GPS speed setting can be changed from the phone. Everything is
+both, and the watch's course, GPS speed and (once the watch has that setting) speeds can be changed
+from the phone. Everything is
 kept in plain files in the app's files directory, and the phone is the long-term store (the watch
 only remembers its last 30 results). There's no server and no account.
 
@@ -23,7 +24,7 @@ The pages, from the menu (from the desktop build with demo data; more in `screen
 | `src/sync.rs` | The sync engine: given the store and an input (the app opened, Sync now, the direct link coming up, a watch event, a tick, a delete, a setting changed), it updates the store and says which lines to send. It has no JNI, threads or clock of its own, so it's all tested on the desktop. |
 | `src/store.rs` | The files: `results.json` (every result, the tombstones of deleted ones, the watch's history as last fetched), `logs/`, `watch.json`, `app.json`, `health/`, `exports/`. Every write is atomic (a temp file, then a rename). |
 | `src/beeplog.rs` | A port of the watch's `beeplog.js`: reads a log, and writes TCX or CSV byte for byte as `beeplog.js` does. Also the rows and the heart rate series the result page draws. |
-| `src/tables.rs` | The level tables, as the watch's `lib.js` has them: speeds, shuttles a level on each course, where a test is at a time, and the result it scores. |
+| `src/tables.rs` | The level tables, as the watch's `lib.js` has them, for each of its speed progressions (the Speeds setting): speeds, shuttles a level on each course, where a test is at a time, and the result it scores. |
 | `src/health.rs` | When the watch was last heard from and last synced (files in `health/`), how long ago that was in words, and times in the phone's time zone. |
 | `src/watch_ble.rs` | The direct link to the watch, without Gadgetbridge (Settings, off by default): the setting (in `watch.json`), what Settings and Watch say about it, and the bytes on the wire (writes in MTU-sized pieces with the watch's XON/XOFF, what it prints read back a line at a time, the clock line). See "The watch without Gadgetbridge" below. |
 | `src/platform/mod.rs` | The process's one store and sync engine: every input goes through `platform::dispatch`, which runs it under one lock and sends the lines it returns. The desktop's versions of the platform calls (they log). |
@@ -31,21 +32,21 @@ The pages, from the menu (from the desktop build with demo data; more in `screen
 | `src/platform/android/ble.rs` | The direct link's Bluetooth calls, ported from blink's: the GATT connection to the watch's UART service (`WatchGatt` reports it), the scan for watches (`WatchScan`), and `WatchService`, the foreground service that keeps it while the app is closed. |
 | `src/platform/android/ui_loop.rs` | blink's event loop wrapper, which lets the loop sleep while the app is in the background (eframe 0.33 would otherwise spin a CPU core), and syncs when the app comes back to the front. |
 | `src/ui.rs` | The shell around the pages, as blink's: the theme and fonts, the cards and buttons, the header and the slide-out menu, the back key (the menu, then a pop-up, then back to Results; on Results it moves the app to the background, `platform::leave`), the safe area, and `Input::Opened` and `Input::Tick` for the sync engine. |
-| `src/ui/results.rs` | Results, the first page: the running-test banner, what the sync is doing with Sync now, the progress chart, and a card per result, newest first, with "★ Best" on each course's best. With no results, how to connect the watch. |
+| `src/ui/results.rs` | Results, the first page: the running-test banner, what the sync is doing with Sync now, the progress chart, and a card per result, newest first, with "★ Best" on the best of each course and speed progression, and the speeds on a card that ran other than the standard ones. With no results, how to connect the watch. |
 | `src/ui/result.rs` | A result: the summary, the heart rate chart with the levels, the levels table, the "<50%" option, Share TCX and Share CSV, and Delete (asks first). A log that hasn't arrived, or that the watch doesn't have, gets a card saying why instead. |
-| `src/ui/watch.rs` | Watch: how it's connected, when it was last heard from and last synced, the watch app's version, Sync now, and the watch's course and GPS speed (sent with `beeptest-set`, shown as the watch has them once it answers). |
+| `src/ui/watch.rs` | Watch: how it's connected, when it was last heard from and last synced, the watch app's version, Sync now, and the watch's course, GPS speed and, when its `state` says `p`, Speeds (sent with `beeptest-set`, shown as the watch has them once it answers). |
 | `src/ui/settings.rs` | Settings: the theme (light, dark or the phone's, which also sets the system bar icons), "Connect to the watch directly, without Gadgetbridge" with the permission request and the watch picker, and the app's version. |
-| `src/ui/chart.rs` | The two charts, the progress chart and the heart rate over a test, drawn with egui's painter; the scaling is apart from the drawing so it's tested. |
+| `src/ui/chart.rs` | The two charts, the progress chart (a line for each course and speed progression with results) and the heart rate over a test, drawn with egui's painter; the scaling is apart from the drawing so it's tested. |
 | `src/ui/status.rs` | From blink: the Watch page's rows (a dot, a name and a few words, opening for the rest). |
 | `src/ui/dialog.rs` | From blink: the look every pop-up shares (Delete's confirm, the watch picker). |
 | `src/ui/toggle.rs` | From blink: the on/off switch row. |
 | `src/ui/chip.rs` | From blink: the small outlined chips ("★ Best", "20 m" / "15 m", "Change" and "Allow"). |
-| `src/ui/demo.rs` | Demo data written through the store: a dozen results over five months with heart rate logs as the watch writes them (the desktop's `--demo`, and the UI tests). The phone never calls it. |
+| `src/ui/demo.rs` | Demo data written through the store: a dozen results over five months (two on the faster speeds) with heart rate logs as the watch writes them (the desktop's `--demo`, and the UI tests). The phone never calls it. |
 | `src/bin/desktop.rs` | The same app in a desktop window, for working on it without a phone: `--demo` fills the data directory with demo results, and `BEEP_PAGE`, `BEEP_THEME`, `BEEP_SIZE` and `BEEP_SHOT` open a page and save a screenshot (below, and at the top of the file). |
-| `tests/sync.rs` | The sync engine against a fake watch (`sync.js` as the phone sees it) over a link that loses, repeats and reorders lines, with the app killed, the watch going back to the clock mid-transfer, and forged events; `BEEP_SEEDS=500` runs more seeds. |
+| `tests/sync.rs` | The sync engine against a fake watch (`sync.js` as the phone sees it, half the seeds with speed progressions and half without) over a link that loses, repeats and reorders lines, with the app killed, the watch going back to the clock mid-transfer, and forged events; `BEEP_SEEDS=500` runs more seeds. |
 | `tests/fixtures.rs` | The lines shared with the watch's tests (`tests/fixtures/` at the repo root; see "Shared fixtures" below). |
 | `tests/beeplog.rs` | The log port against the files `beeplog.js` wrote (`tests/fixtures/beeplog/`). |
-| `tests/ui_result.rs`, `tests/ui_watch.rs` | The pages clicked through headlessly (`egui_kittest`, no pixels) on the demo data: a result, sharing, deleting and the back key; the menu, the Watch page's settings waiting for the watch's answer, the running-test banner, and the theme. |
+| `tests/ui_result.rs`, `tests/ui_watch.rs` | The pages clicked through headlessly (`egui_kittest`, no pixels) on the demo data: a result, sharing, deleting and the back key, a result on other speeds; the menu, the Watch page's settings waiting for the watch's answer (Speeds only while the watch has them), the running-test banner, and the theme. |
 | `app/src/main/java/com/cbishopvelti/beep/WatchReceiver.java` | Gadgetbridge's broadcast of the watch's events (`com.cbishopvelti.beep.WATCH`), handed to Rust. |
 | `app/src/main/java/com/cbishopvelti/beep/BootReceiver.java` | After a reboot or an update of the app: Rust starts `WatchService` again if the direct link is on. |
 | `app/src/main/java/com/cbishopvelti/beep/WatchGatt.java` | The direct link's GATT callbacks (connection, MTU, services, descriptor, write done, data from the watch), each straight to Rust. |
@@ -163,7 +164,8 @@ itself when a test starts or ends, a result is deleted on it, its settings chang
 or going back to the clock cut a transfer off). A sync is a `beeptest-sync` line, which carries the
 deletes the watch hasn't done yet, and the watch answers `state`. Then:
 
-- The phone saves what the watch said (its version, course, GPS speed, the running test) and
+- The phone saves what the watch said (its version, course, GPS speed, speeds when it has them,
+  the running test) and
   deletes every result the watch says was deleted on it, with its log. While a test is running on
   the watch that's all: the watch would answer any `get` with `busy`, and it says `state` again
   when the test ends, which starts the next round.
@@ -194,6 +196,19 @@ deletes the watch hasn't done yet, and the watch answers `state`. Then:
   at once.
 - The 10 s waits count from the phone's clock as it is when they're checked, so a clock set back
   doesn't stop them.
+
+**Speeds.** The watch's Speeds setting picks one of three speed progressions (`lib.js` `PROGS`:
+8.0, 9.0, 9.5... km/h, the standard; 8.0, 8.5, 9.0...; 8.5, 9.5, 10.0...), and each has its own
+shuttles a level, so a result is only comparable with others on the same course and progression.
+A watch whose engine has them says `p` in `state` and in each history entry (and a fifth field,
+the progression, on a log's start line); one from before them says none, which is read as the
+standard speeds. The phone keeps a result's `p` (`results.json` from before it reads as 0), counts
+its shuttles on its own tables (`src/tables.rs`), marks the best of each course and progression,
+draws a progress line for each, and says the speeds on a result's card and page when they aren't
+the standard ones, as the watch's result screen does. The Watch page offers Speeds only while the
+watch's last `state` had a `p` (`WatchState::p`, kept in `watch.json`); a `beeptest-set` with a
+`p` to a watch without them is ignored there, as a bad course is. A history entry with a `p` other
+than 0, 1 or 2 is skipped, as one with a bad field is.
 
 Everything the phone needs to carry on is on disk, so a round interrupted by the app being killed
 carries on at the next `state` or sync. Since the receiver is exported (Gadgetbridge has to reach
@@ -329,7 +344,8 @@ What to check first on a phone, in this order (`adb logcat -s beep` shows what t
    there when the app next opens. Delete a result on the watch: it goes from the phone.
 5. **Delete on the phone**: the result goes from the watch's Results menu at the next sync.
 6. **Watch page**: 15 m and GPS speed reach the watch's start screen and show on the phone once it
-   answers.
+   answers; with a watch that has the Speeds setting, so do the speeds, and a test run on them
+   shows them on its card. With one that hasn't, there's no Speeds choice.
 7. **Share TCX and Share CSV**: the share sheet opens and the file arrives whole in another app
    (Strava, Drive, a mail).
 8. **The direct link** (Settings): the permission requests on Android 12 and later (and location on

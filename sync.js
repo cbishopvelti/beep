@@ -2,7 +2,8 @@
    module "beeptest.sync". The boot file hands it every GB() message from the
    phone whose t starts with "beeptest-", and lib.js and app.js ask it to
    tell the phone the watch's state when something the phone keeps changes:
-   a test starting or ending, a result deleted, the course or GPS setting.
+   a test starting or ending, a result deleted, the course, speeds or GPS
+   setting.
 
    Phone to watch: the Beep Test Android app broadcasts com.banglejs.uart.tx
    and Gadgetbridge passes the line on to the watch (or the phone writes it
@@ -62,19 +63,29 @@ function history() {
   return h === undefined ? undefined : JSON.stringify(h);
 }
 
+/* The engine's speed progressions (lib.js PROGS), or undefined when the
+   installed engine has none (before the Speeds setting): then state has
+   no p and beeptest-set ignores one. */
+function progs() {
+  var P = require("beeptest").PROGS;
+  return Array.isArray(P) && P.length ? P : undefined;
+}
+
 function tombstones() {
   var r = S.readJSON(SYNC, 1);
   return r && Array.isArray(r.del) ? r.del : [];
 }
 
-/* Tells the phone how the watch is: the version installed, the settings,
-   the running test, the history's length and CRC (so the phone fetches it
-   only when it changed) and what was deleted on the watch. */
+/* Tells the phone how the watch is: the version installed, the settings
+   (with the speed progression when the engine has them, as app.js reads
+   it: 0 unless it's one of them), the running test, the history's length
+   and CRC (so the phone fetches it only when it changed) and what was
+   deleted on the watch. */
 function state() {
   if (!connected()) return;
   var s = S.readJSON(SETTINGS, 1) || {}, h = history();
   var info = S.readJSON("beeptest.info", 1) || {};
-  send({
+  var e = {
     event: "state",
     v: String(info.version || ""),
     m: s.m == 15 ? "15" : "20",
@@ -82,7 +93,10 @@ function state() {
     run: running(),
     hist: h === undefined ? "0:0" : h.length + ":" + crc(h),
     del: tombstones().join(",")
-  });
+  };
+  var P = progs();
+  if (P) e.p = String(P[s.p] ? s.p : 0);
+  send(e);
 }
 
 function stop() {
@@ -182,12 +196,14 @@ function sync(del) {
   state();
 }
 
-/* beeptest-set: the course (20 or 15) and GPS speed chosen on the phone,
-   shown by the app if it's open (a "beeptest" event "settings"). */
+/* beeptest-set: the course (20 or 15), GPS speed and speed progression
+   (an index into the engine's PROGS, when it has them) chosen on the
+   phone, shown by the app if it's open (a "beeptest" event "settings"). */
 function set(e) {
-  var s = S.readJSON(SETTINGS, 1) || {};
+  var s = S.readJSON(SETTINGS, 1) || {}, P = progs();
   if (e.m == 20 || e.m == 15) s.m = +e.m;
   if (typeof e.gps == "boolean") s.gps = e.gps;
+  if (P && typeof e.p == "number" && P[e.p]) s.p = e.p;
   S.writeJSON(SETTINGS, s);
   Bangle.emit("beeptest", { type: "settings" });
   state();

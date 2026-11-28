@@ -9,3 +9,5 @@
 GB({"t":"beeptest-set","m":20})
 GB({"t":"beeptest-set","gps":false})
 GB({"t":"beeptest-set"})
+GB({"t":"beeptest-set","p":2})
+GB({"t":"beeptest-set","m":15,"gps":true,"p":1})

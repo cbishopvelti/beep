@@ -5,8 +5,10 @@
 //! (`health::last_seen` with `Link::Watch` and `Link::Synced`,
 //! `health::ago`), the watch app's version (`WatchState::version`), Sync
 //! now (`Input::SyncNow`) with what the sync is doing, and the watch's
-//! settings: Course (20 m / 15 m) and GPS speed, which send `beeptest-set`
-//! (`Input::SetWatch`). They show what the watch last said
+//! settings: Course (20 m / 15 m), GPS speed and, when the watch's app has
+//! the Speeds setting (its `state` says `p`: `WatchState::p`), Speeds
+//! (8, 9 / 8, 8.5 / 8.5, 9.5, as the watch's menu has them), which send
+//! `beeptest-set` (`Input::SetWatch`). They show what the watch last said
 //! (`WatchState`), so a change shows once the watch answers; until then the
 //! page says it's waiting, and after [`ANSWER_WAIT`] that it didn't answer.
 
@@ -16,6 +18,7 @@ use crate::health::{self, Link};
 use crate::platform;
 use crate::store::WatchState;
 use crate::sync::{Input, Progress};
+use crate::tables;
 use crate::watch_ble::{self, Status};
 use egui::RichText;
 use std::time::{Duration, Instant};
@@ -29,14 +32,38 @@ pub const ANSWER_WAIT: Duration = Duration::from_millis(crate::sync::ANSWER_WAIT
 pub(crate) struct Sent {
     pub m: Option<u32>,
     pub gps: Option<bool>,
+    pub p: Option<u32>,
     pub at: Instant,
 }
 
 impl Sent {
     /// Whether the watch now says what was sent.
     pub fn answered(&self, watch: &WatchState) -> bool {
-        self.m.is_none_or(|m| watch.m == Some(m)) && self.gps.is_none_or(|g| watch.gps == Some(g))
+        self.m.is_none_or(|m| watch.m == Some(m))
+            && self.gps.is_none_or(|g| watch.gps == Some(g))
+            && self.p.is_none_or(|p| watch.p == Some(p))
     }
+
+    /// What's being sent, for "Sending ... to the watch...".
+    pub fn words(&self) -> String {
+        match (self.m, self.gps, self.p) {
+            (Some(m), None, None) => format!("the {m} m course"),
+            (None, Some(true), None) => "GPS speed on".into(),
+            (None, Some(false), None) => "GPS speed off".into(),
+            (None, None, Some(p)) => format!("the speeds {}", speeds_choice(p)),
+            _ => "the change".into(),
+        }
+    }
+}
+
+/// A speed progression as the watch's Speeds menu says it: its first two
+/// speeds, "8, 8.5" (km/h at levels 1 and 2).
+pub(crate) fn speeds_choice(p: u32) -> String {
+    let [a, b] = tables::PROGRESSIONS
+        .get(p as usize)
+        .copied()
+        .unwrap_or(tables::PROGRESSIONS[0]);
+    format!("{a}, {b}")
 }
 
 /// The page's settings sent and how they went.
@@ -50,21 +77,23 @@ pub(crate) struct State {
 impl State {
     /// Sends a change of the watch's settings (unless it's what the watch
     /// already has).
-    pub fn send(&mut self, watch: &WatchState, m: Option<u32>, gps: Option<bool>) {
+    pub fn send(&mut self, watch: &WatchState, m: Option<u32>, gps: Option<bool>, p: Option<u32>) {
         let m = m.filter(|m| watch.m != Some(*m));
         let gps = gps.filter(|g| watch.gps != Some(*g));
-        if m.is_none() && gps.is_none() {
+        let p = p.filter(|p| watch.p != Some(*p));
+        if m.is_none() && gps.is_none() && p.is_none() {
             return;
         }
-        platform::dispatch(Input::SetWatch { m, gps });
-        // A course and GPS sent one after the other wait together.
-        let (m, gps) = match &self.sent {
-            Some(s) => (m.or(s.m), gps.or(s.gps)),
-            None => (m, gps),
+        platform::dispatch(Input::SetWatch { m, gps, p });
+        // Changes sent one after the other wait together.
+        let (m, gps, p) = match &self.sent {
+            Some(s) => (m.or(s.m), gps.or(s.gps), p.or(s.p)),
+            None => (m, gps, p),
         };
         self.sent = Some(Sent {
             m,
             gps,
+            p,
             at: Instant::now(),
         });
         self.unanswered = false;
@@ -219,11 +248,13 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
     settings_card(app, ui, &watch);
 }
 
-/// Course and GPS speed, as the watch has them, and what was sent.
+/// Course, GPS speed and (when the watch has the setting) Speeds, as the
+/// watch has them, and what was sent.
 fn settings_card(app: &mut App, ui: &mut egui::Ui, watch: &WatchState) {
     let sent = app.watch.sent.clone();
     let mut m = None;
     let mut gps = None;
+    let mut p = None;
     card(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         ui.horizontal(|ui| {
@@ -245,6 +276,37 @@ fn settings_card(app: &mut App, ui: &mut egui::Ui, watch: &WatchState) {
                 }
             });
         });
+        // Only a watch app with the Speeds setting says which it has.
+        if let Some(now) = watch.p {
+            ui.horizontal(|ui| {
+                ui.set_min_height(44.0);
+                ui.label("Speeds");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    // Right to left: the last first.
+                    for choice in (0..tables::PROGRESSIONS.len() as u32).rev() {
+                        let waiting = sent.as_ref().is_some_and(|s| s.p == Some(choice));
+                        let text = if waiting {
+                            format!("{} …", speeds_choice(choice))
+                        } else {
+                            speeds_choice(choice)
+                        };
+                        if chip::choice(ui, &text, now == choice, 40.0).clicked() {
+                            p = Some(choice);
+                        }
+                    }
+                });
+            });
+            ui.label(
+                RichText::new(format!(
+                    "km/h at levels 1 and 2, then 0.5 more a level: {} now. 8, 9 is the \
+                     standard beep test.",
+                    tables::speeds_text(now)
+                ))
+                .small()
+                .weak(),
+            );
+        }
         let mut on = watch.gps.unwrap_or(false);
         if toggle::show(ui, &mut on, "Record GPS speed").changed() {
             gps = Some(on);
@@ -256,12 +318,7 @@ fn settings_card(app: &mut App, ui: &mut egui::Ui, watch: &WatchState) {
             ui.horizontal_wrapped(|ui| {
                 if let Some(s) = &sent {
                     super::spinner(ui);
-                    let what = match (s.m, s.gps) {
-                        (Some(m), None) => format!("the {m} m course"),
-                        (None, Some(true)) => "GPS speed on".into(),
-                        (None, Some(false)) => "GPS speed off".into(),
-                        _ => "the change".into(),
-                    };
+                    let what = s.words();
                     ui.label(RichText::new(format!("Sending {what} to the watch...")).small());
                 } else if app.watch.unanswered {
                     ui.label(
@@ -292,8 +349,8 @@ fn settings_card(app: &mut App, ui: &mut egui::Ui, watch: &WatchState) {
             .weak(),
         );
     });
-    if m.is_some() || gps.is_some() {
-        app.watch.send(watch, m, gps);
+    if m.is_some() || gps.is_some() || p.is_some() {
+        app.watch.send(watch, m, gps, p);
     }
 }
 
@@ -316,6 +373,7 @@ mod tests {
             sent: Some(Sent {
                 m: Some(15),
                 gps: None,
+                p: None,
                 at,
             }),
             unanswered: false,
@@ -336,6 +394,7 @@ mod tests {
             sent: Some(Sent {
                 m: None,
                 gps: Some(true),
+                p: None,
                 at,
             }),
             unanswered: false,
@@ -348,8 +407,43 @@ mod tests {
     #[test]
     fn what_the_watch_has_already_isnt_sent() {
         let mut s = State::default();
-        s.send(&watch(20, true), Some(20), Some(true));
+        s.send(&watch(20, true), Some(20), Some(true), None);
         assert_eq!(s.sent, None);
+        let w = WatchState {
+            p: Some(1),
+            ..watch(20, true)
+        };
+        s.send(&w, None, None, Some(1));
+        assert_eq!(s.sent, None);
+    }
+
+    #[test]
+    fn speeds_wait_for_the_watch_too() {
+        let at = Instant::now();
+        let sent = Sent {
+            m: None,
+            gps: None,
+            p: Some(2),
+            at,
+        };
+        assert_eq!(sent.words(), "the speeds 8.5, 9.5");
+        let mut s = State {
+            sent: Some(sent),
+            unanswered: false,
+        };
+        let mut w = WatchState {
+            p: Some(0),
+            ..watch(20, false)
+        };
+        s.settle(&w, at + Duration::from_secs(1));
+        assert!(s.sent.is_some());
+        w.p = Some(2);
+        s.settle(&w, at + Duration::from_secs(2));
+        assert_eq!(s.sent, None);
+        assert_eq!(
+            (0..3).map(speeds_choice).collect::<Vec<_>>(),
+            ["8, 9", "8, 8.5", "8.5, 9.5"]
+        );
     }
 
     #[test]

@@ -1,12 +1,15 @@
 //! The Results page, the first: a card a result, newest first
 //! (`Store::results`), with the date and time in the phone's time zone
 //! (`crate::health::local`), the course, the result large as
-//! `level.shuttle`, the distance, the time, and heart rate avg / max; a
-//! "best" mark on the best of each course (`Store::bests`). Above the list,
+//! `level.shuttle`, the distance, the time, heart rate avg / max, and the
+//! speeds when they aren't the standard ones (`Entry::speeds`); a "best"
+//! mark on the best of each course and speed progression (`Store::bests`:
+//! a result on one progression isn't compared with another's). Above the list,
 //! a banner while a test runs on the watch (`WatchState::run`), the sync
 //! button (`Input::SyncNow`) with what the sync is doing
 //! (`Progress::words`), and a small progress chart of results over time
-//! with a line per course (`Entry::total_shuttles`, `ui/chart.rs`). With no
+//! with a line per course and progression that has results
+//! (`Entry::total_shuttles`, `ui/chart.rs`). With no
 //! results, how to connect the watch. Tapping a card opens it
 //! (`Page::Result`).
 
@@ -30,6 +33,9 @@ pub(crate) struct CardText {
     pub score: String,
     /// "1480 m · 9:03 · ♥ 160 / 187".
     pub facts: String,
+    /// "8.0, 8.5, 9.0... km/h", when the test ran other speeds than the
+    /// standard ones (as the watch's result screen says them).
+    pub speeds: Option<String>,
     /// Said when its log isn't on the phone.
     pub log: Option<&'static str>,
 }
@@ -77,6 +83,7 @@ pub(crate) fn card_text(r: &TestResult, now_s: i64) -> CardText {
             super::duration(f64::from(e.dur)),
             heart_rate(e.avg, e.max)
         ),
+        speeds: e.speeds(),
         log: match r.log {
             LogState::Complete => None,
             LogState::Missing | LogState::Partial(_) => Some("Heart rate log still on the watch"),
@@ -105,7 +112,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
             chart::progress(ui, &series, 130.0);
             let items: Vec<_> = series
                 .iter()
-                .map(|s| (chart::course_color(s.m), format!("{} m", s.m)))
+                .map(|s| (chart::series_color(s.m, s.p), chart::series_label(s.m, s.p)))
                 .collect();
             ui.horizontal(|ui| {
                 chart::legend(ui, &items);
@@ -118,7 +125,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
     }
     let mut open = None;
     for r in &app.view.results {
-        let best = app.view.bests.get(&r.entry.m) == Some(&r.entry.f);
+        let best = app.view.is_best(r);
         if result_card(ui, r, best, now) {
             open = Some(r.entry.f.clone());
         }
@@ -150,6 +157,9 @@ fn result_card(ui: &mut egui::Ui, r: &TestResult, best: bool, now: i64) -> bool 
             ui.label(RichText::new(format!("on {}", text.course)).weak());
         });
         ui.label(&text.facts);
+        if let Some(speeds) = &text.speeds {
+            ui.label(RichText::new(speeds).small().weak());
+        }
         if let Some(log) = text.log {
             ui.label(RichText::new(log).small().weak());
         }
@@ -160,7 +170,13 @@ fn result_card(ui: &mut egui::Ui, r: &TestResult, best: bool, now: i64) -> bool 
         egui::WidgetInfo::labeled(
             egui::WidgetType::Button,
             true,
-            format!("Result {} on {}, {}", text.score, text.course, text.when),
+            match &text.speeds {
+                None => format!("Result {} on {}, {}", text.score, text.course, text.when),
+                Some(speeds) => format!(
+                    "Result {} on {} at {speeds}, {}",
+                    text.score, text.course, text.when
+                ),
+            },
         )
     });
     if tap.hovered() {
@@ -268,6 +284,7 @@ mod tests {
                 f: "beeptest.1795000000.csv".into(),
                 t: 1_795_000_000_123,
                 m: 20,
+                p: 0,
                 l: 9,
                 s: 4,
                 d: 1480,
@@ -286,6 +303,7 @@ mod tests {
         assert_eq!(text.score, "9.4");
         assert_eq!(text.course, "20 m");
         assert_eq!(text.facts, "1480 m · 9:03 · ♥ 160 / 187");
+        assert_eq!(text.speeds, None, "the standard speeds aren't said");
         assert_eq!(text.log, None);
         // The phone's time zone, as health::local has it, without the
         // year this year.
@@ -308,6 +326,15 @@ mod tests {
             "{}",
             later.when
         );
+    }
+
+    #[test]
+    fn a_card_says_the_speeds_when_they_arent_the_standard_ones() {
+        let mut r = result(LogState::Complete);
+        for (p, words) in [(1, "8.0, 8.5, 9.0... km/h"), (2, "8.5, 9.5, 10.0... km/h")] {
+            r.entry.p = p;
+            assert_eq!(card_text(&r, 0).speeds.as_deref(), Some(words));
+        }
     }
 
     #[test]

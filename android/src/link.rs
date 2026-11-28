@@ -47,8 +47,8 @@ pub const MAX_DEL: usize = 30;
 /// The extras the watch's events can have: what `WatchReceiver` reads off
 /// the broadcast (Android has no way to list a bundle's string extras that
 /// is any simpler) into the map for [`parse_event`].
-pub const EXTRAS: [&str; 12] = [
-    "event", "v", "m", "gps", "run", "hist", "del", "f", "at", "crc", "d", "len",
+pub const EXTRAS: [&str; 13] = [
+    "event", "v", "m", "gps", "p", "run", "hist", "del", "f", "at", "crc", "d", "len",
 ];
 /// The most digits a log's name may have: the watch names them by the
 /// test's start in Unix seconds (10 digits until 2286). Any more and the
@@ -204,15 +204,19 @@ pub fn get_line(f: &str, at: u64) -> String {
     ))
 }
 
-/// `\x10GB({"t":"beeptest-set","m":20,"gps":true})\n`: changes the watch's
-/// course and GPS setting; either is left out when `None`.
-pub fn set_line(m: Option<u32>, gps: Option<bool>) -> String {
+/// `\x10GB({"t":"beeptest-set","m":20,"gps":true,"p":1})\n`: changes the
+/// watch's course, GPS setting and speed progression; each is left out
+/// when `None`. A watch without the Speeds setting ignores `p`.
+pub fn set_line(m: Option<u32>, gps: Option<bool>, p: Option<u32>) -> String {
     let mut json = String::from("{\"t\":\"beeptest-set\"");
     if let Some(m) = m {
         json.push_str(&format!(",\"m\":{m}"));
     }
     if let Some(gps) = gps {
         json.push_str(&format!(",\"gps\":{gps}"));
+    }
+    if let Some(p) = p {
+        json.push_str(&format!(",\"p\":{p}"));
     }
     json.push('}');
     gb(&json)
@@ -233,6 +237,9 @@ pub struct State {
     pub m: u32,
     /// Whether the watch records GPS speed.
     pub gps: bool,
+    /// The speed progression the watch is set to (0, 1 or 2); `None` from a
+    /// watch app without the Speeds setting, whose `state` has no `p`.
+    pub p: Option<u32>,
     /// The running test's log file name; `None` for `""`.
     pub run: Option<String>,
     /// The length and CRC32 of the history as the watch sends it
@@ -308,11 +315,13 @@ fn shown(s: &str) -> String {
 ///
 /// - an `event` that isn't `state`, `log`, `logend` or `busy`;
 /// - a missing extra the event needs (`state`: `v`, `m`, `gps`, `run`,
-///   `hist`, `del`; `log`: `f`, `at`, `crc`, `d`; `logend`: `f`, `len`;
-///   `busy`: `f`); extras it doesn't need are ignored;
+///   `hist`, `del`, and `p` only from a watch with the Speeds setting;
+///   `log`: `f`, `at`, `crc`, `d`; `logend`: `f`, `len`; `busy`: `f`);
+///   extras it doesn't need are ignored;
 /// - `f`, `run` (unless `""`) or a name in `del` that isn't a log name
 ///   ([`is_log_name`]; `f` may also be [`HISTORY`]);
-/// - `m` not `"20"` or `"15"`, `gps` not `"true"` or `"false"`, `hist` not
+/// - `m` not `"20"` or `"15"`, `gps` not `"true"` or `"false"`, `p` (when
+///   there is one) not `"0"`, `"1"` or `"2"`, `hist` not
 ///   `"<length>:<crc>"`, `at` or `crc` not an unsigned decimal (`crc` at
 ///   most 0xFFFFFFFF), `len` not one or `"-1"`;
 /// - `del` with more than [`MAX_DEL`] names;
@@ -353,6 +362,11 @@ pub fn parse_event(extras: &BTreeMap<String, String>) -> Result<WatchEvent, Refu
                 "false" => false,
                 other => return Err(bad("gps", other)),
             };
+            let p = match extras.get("p").map(String::as_str) {
+                None => None,
+                Some(p @ ("0" | "1" | "2")) => p.parse().ok(),
+                Some(other) => return Err(bad("p", other)),
+            };
             let run = match get("run")? {
                 "" => None,
                 f if is_log_name(f) => Some(f.to_string()),
@@ -383,6 +397,7 @@ pub fn parse_event(extras: &BTreeMap<String, String>) -> Result<WatchEvent, Refu
                 version: version.to_string(),
                 m,
                 gps,
+                p,
                 run,
                 hist,
                 del,
@@ -459,8 +474,10 @@ pub fn extras_from_line(line: &str) -> Option<BTreeMap<String, String>> {
 /// watch's order. An entry whose `f` isn't a log name or whose numbers are
 /// missing or don't parse is skipped (numbers are rounded to whole ones,
 /// and must fit: `t` within a `Date`'s range, the rest 0 to 2^32 - 1), as
-/// is a second entry with the same `f`; text that isn't a JSON array, or is
-/// longer than [`MAX_HISTORY`], is refused.
+/// is one with a `p` that isn't 0, 1 or 2 (no `p` is 0: the entry is from
+/// before the Speeds setting) and a second entry with the same `f`; text
+/// that isn't a JSON array, or is longer than [`MAX_HISTORY`], is
+/// refused.
 pub fn parse_history(bytes: &[u8]) -> Result<Vec<crate::store::Entry>, Refused> {
     if bytes.len() as u64 > MAX_HISTORY {
         return Err(Refused(format!(
@@ -501,6 +518,15 @@ fn history_entry(v: &serde_json::Value) -> Option<crate::store::Entry> {
         f: f.to_string(),
         t,
         m: small("m")?,
+        // An index, so exactly 0, 1 or 2 (not rounded to one).
+        p: match v.get("p") {
+            None => 0,
+            Some(p) => p
+                .as_f64()
+                .filter(|p| p.fract() == 0.0 && *p >= 0.0)
+                .map(|p| p as u32)
+                .filter(|p| crate::tables::is_progression(*p))?,
+        },
         l: small("l")?,
         s: small("s")?,
         d: small("d")?,
@@ -549,18 +575,29 @@ mod tests {
             "\u{10}GB({\"t\":\"beeptest-get\",\"f\":\"beeptest.1781344800.csv\",\"at\":2000})\n"
         );
         assert_eq!(
-            set_line(Some(15), Some(true)),
+            set_line(Some(15), Some(true), None),
             "\u{10}GB({\"t\":\"beeptest-set\",\"m\":15,\"gps\":true})\n"
         );
         assert_eq!(
-            set_line(None, Some(false)),
+            set_line(None, Some(false), None),
             "\u{10}GB({\"t\":\"beeptest-set\",\"gps\":false})\n"
         );
         assert_eq!(
-            set_line(Some(20), None),
+            set_line(Some(20), None, None),
             "\u{10}GB({\"t\":\"beeptest-set\",\"m\":20})\n"
         );
-        assert_eq!(set_line(None, None), "\u{10}GB({\"t\":\"beeptest-set\"})\n");
+        assert_eq!(
+            set_line(None, None, Some(2)),
+            "\u{10}GB({\"t\":\"beeptest-set\",\"p\":2})\n"
+        );
+        assert_eq!(
+            set_line(Some(15), Some(false), Some(0)),
+            "\u{10}GB({\"t\":\"beeptest-set\",\"m\":15,\"gps\":false,\"p\":0})\n"
+        );
+        assert_eq!(
+            set_line(None, None, None),
+            "\u{10}GB({\"t\":\"beeptest-set\"})\n"
+        );
     }
 
     #[test]
@@ -643,6 +680,7 @@ mod tests {
                 version: "0.05".into(),
                 m: 20,
                 gps: false,
+                p: None,
                 run: None,
                 hist: Hist {
                     len: 216,
@@ -664,6 +702,14 @@ mod tests {
             (st.run.as_deref(), st.del.len(), st.m, st.gps),
             (Some("beeptest.9.csv"), 0, 15, true)
         );
+        // A watch with the Speeds setting says which.
+        for (text, p) in [("0", 0), ("1", 1), ("2", 2)] {
+            s.insert("p".into(), text.into());
+            let WatchEvent::State(st) = parse_event(&s).unwrap() else {
+                panic!()
+            };
+            assert_eq!(st.p, Some(p));
+        }
 
         // As many deletions as the watch remembers, and no more.
         let names = |n: u64| -> String {
@@ -763,6 +809,12 @@ mod tests {
             with("v", &"9".repeat(33)),
             with("v", "0.05\n"),
             with("v", "\u{e9}"),
+            with("p", "3"),
+            with("p", "-1"),
+            with("p", "1.0"),
+            with("p", " 1"),
+            with("p", ""),
+            with("p", "01"),
             without("event"),
             without("v"),
             without("m"),
@@ -849,15 +901,31 @@ mod tests {
             {"t":1,"m":20,"l":1,"s":1,"dur":9,"max":0,"avg":0,"f":"beeptest.5.csv"},
             {"t":1e300,"m":20,"l":1,"s":1,"d":20,"dur":9,"max":0,"avg":0,"f":"beeptest.6.csv"},
             {"t":2,"m":20,"l":1,"s":1,"d":20,"dur":9,"max":0,"avg":0,"f":"beeptest.1781344800.csv"},
+            {"t":3,"m":20,"p":2,"l":4,"s":1,"d":540,"dur":200,"max":0,"avg":0,"f":"beeptest.7.csv"},
+            {"t":3,"m":15,"p":0,"l":4,"s":1,"d":540,"dur":200,"max":0,"avg":0,"f":"beeptest.8.csv"},
+            {"t":3,"m":20,"p":3,"l":4,"s":1,"d":540,"dur":200,"max":0,"avg":0,"f":"beeptest.9.csv"},
+            {"t":3,"m":20,"p":1.4,"l":4,"s":1,"d":540,"dur":200,"max":0,"avg":0,"f":"beeptest.10.csv"},
+            {"t":3,"m":20,"p":"1","l":4,"s":1,"d":540,"dur":200,"max":0,"avg":0,"f":"beeptest.11.csv"},
+            {"t":3,"m":20,"p":-1,"l":4,"s":1,"d":540,"dur":200,"max":0,"avg":0,"f":"beeptest.12.csv"},
+            {"t":3,"m":20,"p":null,"l":4,"s":1,"d":540,"dur":200,"max":0,"avg":0,"f":"beeptest.13.csv"},
             null, 5, "x"]"#;
         let entries = parse_history(h).unwrap();
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 4);
+        // No p (before the Speeds setting) is the standard speeds; 0, 1
+        // and 2 are taken, nothing else.
+        assert_eq!(
+            entries.iter().map(|e| e.p).collect::<Vec<_>>(),
+            [0, 0, 2, 0]
+        );
+        assert_eq!(entries[2].f, "beeptest.7.csv");
+        assert_eq!(entries[3].f, "beeptest.8.csv");
         assert_eq!(
             entries[0],
             crate::store::Entry {
                 f: "beeptest.1781344800.csv".into(),
                 t: 1_781_344_800_000,
                 m: 20,
+                p: 0,
                 l: 7,
                 s: 3,
                 d: 1080,

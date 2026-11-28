@@ -7,7 +7,7 @@
 //! | `results.json` | Every result (the watch's history entries, by log file name `f`), the tombstones of deleted ones, and the watch's history as last fetched whole (its `len:crc` and the names it listed, in its order). |
 //! | `logs/<f>` | A result's log, complete. |
 //! | `logs/<f>.part` | A log still arriving: the bytes so far, appended a piece at a time. |
-//! | `watch.json` | What the watch last said ([`WatchState`]: version, course, GPS, running test, when), and the direct link's setting (`crate::watch_ble::Settings`), each owner writing only its own keys ([`update_json`]). |
+//! | `watch.json` | What the watch last said ([`WatchState`]: version, course, GPS, speeds, running test, when), and the direct link's setting (`crate::watch_ble::Settings`), each owner writing only its own keys ([`update_json`]). |
 //! | `app.json` | The theme ([`Theme`]). |
 //! | `health/` | When the watch was last heard from and last synced (`crate::health`). |
 //! | `exports/` | TCX and CSV files made to share ([`Store::export`]); Android's share sheet reads them through the `FileProvider`. |
@@ -15,13 +15,15 @@
 //! `results.json` looks like
 //!
 //! ```json
-//! {"results":[{"f":"beeptest.1764334800.csv","t":1764334800123,"m":20,"l":9,"s":4,
+//! {"results":[{"f":"beeptest.1764334800.csv","t":1764334800123,"m":20,"p":0,"l":9,"s":4,
 //!   "d":1480,"dur":543,"max":187,"avg":160}],
 //!  "tombstones":[{"f":"beeptest.1764248400.csv","state":"pending"}],
 //!  "hist":"1234:3735928559","listed":["beeptest.1764334800.csv"]}
 //! ```
 //!
 //! with `"nolog":true` on a result whose log the watch said it hasn't got.
+//! A result kept before the phone knew the speed progressions has no `p`,
+//! which reads as 0 (the standard speeds, all the watch had then).
 //! The tombstones are a list, oldest deletion first, so `beeptest-sync`
 //! names them in that order. An entry that doesn't read (a hand edit) is
 //! left out; a `results.json` that doesn't read at all reads as empty, and
@@ -63,7 +65,9 @@ use std::sync::Mutex;
 
 /// A history entry, as the watch's `lib.js` `stop` writes it to
 /// `beeptest.json`. The key is `f`: the result's `t` can move when the
-/// watch's clock is set mid-test, the log's file name doesn't.
+/// watch's clock is set mid-test, the log's file name doesn't. `p` came
+/// with the watch's Speeds setting: an entry from a watch app before it
+/// has none, and ran the standard speeds (0).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     /// The log's file name, `beeptest.<start s>.csv`.
@@ -72,6 +76,9 @@ pub struct Entry {
     pub t: i64,
     /// The course, metres (20 or 15).
     pub m: u32,
+    /// The speed progression, an index into
+    /// [`crate::tables::PROGRESSIONS`]: 0, 1 or 2.
+    pub p: u32,
     /// The result, `l.s`: the last fully completed shuttle.
     pub l: u32,
     pub s: u32,
@@ -93,12 +100,18 @@ impl Entry {
     /// Shuttles completed in all (`crate::tables::total_shuttles`): what
     /// the progress chart plots.
     pub fn total_shuttles(&self) -> u32 {
-        crate::tables::total_shuttles(self.m, self.l, self.s)
+        crate::tables::total_shuttles(self.m, self.l, self.s, self.p)
+    }
+
+    /// The speeds it ran, "8.0, 8.5, 9.0... km/h", when they aren't the
+    /// standard ones (as the watch's result screen says them).
+    pub fn speeds(&self) -> Option<String> {
+        (self.p != 0).then(|| crate::tables::speeds_text(self.p))
     }
 
     fn to_json(&self, nolog: bool) -> Value {
         let mut v = json!({
-            "f": self.f, "t": self.t, "m": self.m, "l": self.l, "s": self.s,
+            "f": self.f, "t": self.t, "m": self.m, "p": self.p, "l": self.l, "s": self.s,
             "d": self.d, "dur": self.dur, "max": self.max, "avg": self.avg,
         });
         if nolog {
@@ -116,6 +129,11 @@ impl Entry {
                 .to_string(),
             t: v["t"].as_i64()?,
             m: small("m")?,
+            // Absent in a results.json from before the speeds: the standard.
+            p: match v.get("p") {
+                None => 0,
+                Some(_) => small("p").filter(|p| crate::tables::is_progression(*p))?,
+            },
             l: small("l")?,
             s: small("s")?,
             d: small("d")?,
@@ -194,8 +212,9 @@ impl Merged {
 }
 
 /// What the watch last said in a `state` event, kept in `watch.json`
-/// (keys `version`, `m`, `gps`, `run`, `heard`). All `None` until it has
-/// said anything.
+/// (keys `version`, `m`, `gps`, `p`, `run`, `heard`). All `None` until it
+/// has said anything; `p` stays `None` while the watch's app has no Speeds
+/// setting (its `state` has no `p`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct WatchState {
     /// The watch app's version.
@@ -204,6 +223,9 @@ pub struct WatchState {
     pub m: Option<u32>,
     /// Whether the watch records GPS speed.
     pub gps: Option<bool>,
+    /// The watch's speed progression (0, 1 or 2), when it has the Speeds
+    /// setting.
+    pub p: Option<u32>,
     /// The running test's log file name, while one runs.
     pub run: Option<String>,
     /// When the phone got that `state`, Unix seconds. (`crate::health`'s
@@ -500,19 +522,23 @@ impl Store {
         Some(TestResult { entry, log })
     }
 
-    /// The best result on each course, by course (metres) to its `f`: the
-    /// furthest distance (`d`), the earlier one on a tie.
-    pub fn bests(&self) -> BTreeMap<u32, String> {
-        let mut best: BTreeMap<u32, Entry> = BTreeMap::new();
+    /// The best result on each course and speed progression, by (course
+    /// in metres, `p`) to its `f`: the furthest distance (`d`), the earlier
+    /// one on a tie. A result on one progression isn't compared with
+    /// another's: a 9.1 on 8.5, 9.5... km/h isn't one on the standard
+    /// speeds.
+    pub fn bests(&self) -> BTreeMap<(u32, u32), String> {
+        let mut best: BTreeMap<(u32, u32), Entry> = BTreeMap::new();
         for (e, _) in self.data().results {
-            let better = best.get(&e.m).is_none_or(|b| {
+            let key = (e.m, e.p);
+            let better = best.get(&key).is_none_or(|b| {
                 (e.d, std::cmp::Reverse((e.t, &e.f))) > (b.d, std::cmp::Reverse((b.t, &b.f)))
             });
             if better {
-                best.insert(e.m, e);
+                best.insert(key, e);
             }
         }
-        best.into_iter().map(|(m, e)| (m, e.f)).collect()
+        best.into_iter().map(|(k, e)| (k, e.f)).collect()
     }
 
     /// Every tombstone, by log file name.
@@ -788,6 +814,10 @@ impl Store {
                 .and_then(Value::as_u64)
                 .and_then(|m| u32::try_from(m).ok()),
             gps: v.get("gps").and_then(Value::as_bool),
+            p: v.get("p")
+                .and_then(Value::as_u64)
+                .and_then(|p| u32::try_from(p).ok())
+                .filter(|p| crate::tables::is_progression(*p)),
             run: v
                 .get("run")
                 .and_then(Value::as_str)
@@ -812,6 +842,7 @@ impl Store {
             put("version", state.version.clone().map(Value::from));
             put("m", state.m.map(Value::from));
             put("gps", state.gps.map(Value::from));
+            put("p", state.p.map(Value::from));
             put("run", state.run.clone().map(Value::from));
             put("heard", state.heard.map(Value::from));
         })
@@ -903,6 +934,7 @@ mod tests {
             f: f.into(),
             t,
             m,
+            p: 0,
             l: 3,
             s: 2,
             d,
@@ -974,8 +1006,34 @@ mod tests {
             .unwrap();
         assert_eq!(
             store.bests(),
-            BTreeMap::from([(15, B.to_string()), (20, C.to_string())])
+            BTreeMap::from([((15, 0), B.to_string()), ((20, 0), C.to_string())])
         );
+        // On other speeds, a best of their own, even when it's shorter: a
+        // result on one progression isn't compared with another's.
+        let fast = |f: &str, p, d| Entry {
+            p,
+            ..entry(f, 6000, 20, d)
+        };
+        store
+            .merge_history(
+                &[
+                    fast("beeptest.6.csv", 2, 400),
+                    fast("beeptest.7.csv", 2, 1200),
+                    fast("beeptest.8.csv", 1, 100),
+                ],
+                hist,
+            )
+            .unwrap();
+        assert_eq!(
+            store.bests(),
+            BTreeMap::from([
+                ((15, 0), B.to_string()),
+                ((20, 0), C.to_string()),
+                ((20, 1), "beeptest.8.csv".to_string()),
+                ((20, 2), "beeptest.7.csv".to_string()),
+            ])
+        );
+        assert_eq!(store.result("beeptest.8.csv").unwrap().entry.p, 1);
         // A new store on the same directory reads the same.
         let again = Store::open(dir.path()).unwrap();
         assert_eq!(again.results(), store.results());
@@ -1133,13 +1191,16 @@ mod tests {
             std::fs::read_to_string(dir.path().join("results.json.broken")).unwrap(),
             "{not json"
         );
-        // An entry that doesn't read is left out; the rest stay.
+        // An entry that doesn't read is left out (a speed progression the
+        // phone doesn't know among them); the rest stay, one without a `p`
+        // (from before the speeds) on the standard ones.
         std::fs::write(
             dir.path().join("results.json"),
-            r#"{"results":[{"f":"x"},{"f":"beeptest.1.csv","t":1,"m":20,"l":1,"s":1,"d":20,"dur":9,"max":0,"avg":0,"nolog":true}],"tombstones":[{"f":"beeptest.2.csv","state":"pending"},{"f":"y","state":"done"},{"f":"beeptest.3.csv","state":"maybe"}],"hist":"5:6","listed":["beeptest.1.csv",7,"../z"]}"#,
+            r#"{"results":[{"f":"x"},{"f":"beeptest.1.csv","t":1,"m":20,"l":1,"s":1,"d":20,"dur":9,"max":0,"avg":0,"nolog":true},{"f":"beeptest.4.csv","t":1,"m":20,"p":3,"l":1,"s":1,"d":20,"dur":9,"max":0,"avg":0},{"f":"beeptest.5.csv","t":1,"m":20,"p":"1","l":1,"s":1,"d":20,"dur":9,"max":0,"avg":0}],"tombstones":[{"f":"beeptest.2.csv","state":"pending"},{"f":"y","state":"done"},{"f":"beeptest.3.csv","state":"maybe"}],"hist":"5:6","listed":["beeptest.1.csv",7,"../z"]}"#,
         )
         .unwrap();
         assert_eq!(names(&store), vec!["beeptest.1.csv"]);
+        assert_eq!(store.result("beeptest.1.csv").unwrap().entry.p, 0);
         assert_eq!(store.log_state("beeptest.1.csv"), LogState::NoLog);
         assert_eq!(store.pending_deletes(), vec!["beeptest.2.csv"]);
         assert_eq!(store.tombstones().len(), 1);
@@ -1166,6 +1227,7 @@ mod tests {
             version: Some("0.05".into()),
             m: Some(15),
             gps: Some(true),
+            p: Some(2),
             run: Some(A.into()),
             heard: Some(1_781_344_800),
         };
@@ -1180,6 +1242,31 @@ mod tests {
         let file = read_object(&dir.path().join("watch.json"));
         assert_eq!(file["direct"], true);
         assert!(!file.contains_key("run"));
+        assert_eq!(file["p"], 2);
+        // A watch without the Speeds setting: no p kept.
+        let old = WatchState { p: None, ..none };
+        store.save_watch_state(&old).unwrap();
+        assert_eq!(store.watch_state(), old);
+        assert!(!read_object(&dir.path().join("watch.json")).contains_key("p"));
+        // A watch.json from before the speeds (or with one the phone doesn't
+        // know) reads, without one.
+        std::fs::write(
+            dir.path().join("watch.json"),
+            r#"{"version":"0.05","m":20,"gps":false,"heard":5,"direct":true}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            store.watch_state(),
+            WatchState {
+                version: Some("0.05".into()),
+                m: Some(20),
+                gps: Some(false),
+                heard: Some(5),
+                ..WatchState::default()
+            }
+        );
+        std::fs::write(dir.path().join("watch.json"), r#"{"p":3}"#).unwrap();
+        assert_eq!(store.watch_state().p, None);
 
         store.set_theme(Theme::Dark).unwrap();
         assert_eq!(store.theme(), Theme::Dark);
@@ -1234,6 +1321,13 @@ mod tests {
             ..entry(A, 1, 20, 1)
         };
         assert_eq!(e.score_text(), "9.4");
-        assert_eq!(e.total_shuttles(), crate::tables::total_shuttles(20, 9, 4));
+        assert_eq!(
+            e.total_shuttles(),
+            crate::tables::total_shuttles(20, 9, 4, 0)
+        );
+        assert_eq!(e.speeds(), None);
+        let e = Entry { p: 1, ..e };
+        assert_eq!(e.total_shuttles(), 73);
+        assert_eq!(e.speeds().as_deref(), Some("8.0, 8.5, 9.0... km/h"));
     }
 }

@@ -9,7 +9,10 @@
 //! - `watch-lines.txt` is what the watch printed for a scripted exchange
 //!   (the watch's tests make it, on the emulator): fed through `link` and
 //!   the sync engine, it must leave the store with the results and logs
-//!   the exchange carried.
+//!   the exchange carried. A watch whose engine has no speed progressions
+//!   (before its Speeds setting) prints its states without `p`, and one
+//!   with them with `p`: this test takes either, and checks the phone
+//!   kept what the watch said.
 
 use beep_android::link::{self, HISTORY, Hist};
 use beep_android::store::{Entry, LogState, Store, Tombstone};
@@ -38,10 +41,12 @@ fn phone_lines() -> String {
         link::get_line(B, 2000),
         link::get_line(C, 0),
         link::get_line(HISTORY, 100_000),
-        link::set_line(Some(15), Some(true)),
-        link::set_line(Some(20), None),
-        link::set_line(None, Some(false)),
-        link::set_line(None, None),
+        link::set_line(Some(15), Some(true), None),
+        link::set_line(Some(20), None, None),
+        link::set_line(None, Some(false), None),
+        link::set_line(None, None, None),
+        link::set_line(None, None, Some(2)),
+        link::set_line(Some(15), Some(true), Some(1)),
     ]
     .concat()
 }
@@ -122,6 +127,7 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
         f: C.into(),
         t: 1_781_172_000_000,
         m: 20,
+        p: 0,
         l: 1,
         s: 3,
         d: 60,
@@ -170,6 +176,7 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
             f: A.into(),
             t: 1_781_344_800_000,
             m: 20,
+            p: 0,
             l: 7,
             s: 3,
             d: 1080,
@@ -218,4 +225,20 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
         (w.version.as_deref(), w.m, w.gps, w.run),
         (Some("0.05"), Some(15), Some(true), None)
     );
+    // The speeds: the exchange sets p 1, which a watch without the Speeds
+    // setting ignores (its states have no p), and one with it says.
+    let ps: Vec<Option<u32>> = events
+        .iter()
+        .filter_map(|e| match e {
+            Input::Watch(link::WatchEvent::State(s)) => Some(s.p),
+            _ => None,
+        })
+        .collect();
+    if ps.iter().any(Option::is_some) {
+        assert_eq!(ps, [Some(0), Some(0), Some(1)]);
+        assert_eq!(w.p, Some(1));
+    } else {
+        assert_eq!(ps, [None, None, None]);
+        assert_eq!(w.p, None);
+    }
 }

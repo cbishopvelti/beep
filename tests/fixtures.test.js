@@ -35,7 +35,9 @@ function setUp(h) {
 /* The exchange: the phone connects (state, unasked); a sync deleting C
    (state); the history fetched; A fetched whole; B from 0, then, after two
    pieces, from 2000 (as after the link dropped: the new get replaces the
-   old); the course and GPS set (state). */
+   old); the course, GPS and speeds set (state: with an engine that has no
+   speed progressions, as before the Speeds setting, the watch ignores p
+   and its states have none). */
 async function exchange(h) {
   setUp(h);
   await h.connect();
@@ -53,7 +55,7 @@ async function exchange(h) {
   from = ours(h).length;
   await h.gb({ t: "beeptest-get", f: B, at: 2000 });
   await untilEnd(h, B, from);
-  await h.gb({ t: "beeptest-set", m: 15, gps: true });
+  await h.gb({ t: "beeptest-set", m: 15, gps: true, p: 1 });
   return h.lines().filter(l => JSON.parse(l).package == PACKAGE);
 }
 
@@ -67,6 +69,10 @@ test("tests/fixtures/watch-lines.txt is what the watch prints for the scripted e
   assert.eq(ev.filter(e => e.event == "logend").map(e => e.f), ["beeptest.json", A, B]);
   assert.eq(ev.filter(e => e.f == B && e.event == "log").map(e => e.at).slice(0, 3), ["0", "1000", "2000"]);
   assert.eq([ev[ev.length - 1].m, ev[ev.length - 1].gps], ["15", "true"]);
+  const states = ev.filter(e => e.event == "state");
+  if (h.eval('!!require("beeptest").PROGS'))
+    assert.eq(states.map(e => e.p), ["0", "0", "1"], "the speeds, and the one set");
+  else assert(states.every(e => !("p" in e)), "no speeds without progressions");
   assert(lines.every(l => /^[\x20-\x7e]*$/.test(l)), "ASCII, one message a line");
 
   const text = lines.join("\n") + "\n";

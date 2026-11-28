@@ -14,7 +14,11 @@
 //!
 //! What the log holds (`lib.js`):
 //!
-//! - `start,<ms>,<tz offset min>,<course m>`: first.
+//! - `start,<ms>,<tz offset min>,<course m>,<progression>`: first. The
+//!   progression (the Speeds setting's index, [`crate::tables::PROGRESSIONS`])
+//!   came with that setting: a log from before it has four fields.
+//!   `beeplog.js` ignores it (so the TCX and CSV do too); [`parse`] reads it
+//!   into [`Log::progression`].
 //! - `<t s>,<bpm>,<confidence>,<level>,<shuttle>,<distance m>` and, with GPS,
 //!   `,<speed km/h>,<lat>,<lon>` (empty without a fix): a sample.
 //! - `clock,<s>`: the watch's clock was set by this much during the test.
@@ -36,6 +40,10 @@ pub struct Log {
     pub tz_offset: f64,
     /// The course, metres (20 when absent).
     pub course: f64,
+    /// The speed progression the test ran (the start line's fifth field): 0,
+    /// 1 or 2; 0 when absent (a log from before the Speeds setting) or
+    /// anything else. Not in `beeplog.js`, which doesn't read it.
+    pub progression: u32,
     /// The samples up to the end (none after `end.t`), in time order
     /// (a stable sort, so equal times keep the log's order).
     pub samples: Vec<Sample>,
@@ -85,6 +93,7 @@ pub fn parse(text: &str) -> Log {
         start_ms: 0.0,
         tz_offset: 0.0,
         course: 20.0,
+        progression: 0,
         samples: Vec::new(),
         end: None,
     };
@@ -101,6 +110,8 @@ pub fn parse(text: &str) -> Log {
                 out.start_ms = plus(1);
                 out.tz_offset = or(plus(2), 0.0);
                 out.course = or(plus(3), 20.0);
+                let p = plus(4);
+                out.progression = if p == 1.0 || p == 2.0 { p as u32 } else { 0 };
             }
             // the watch's clock was set by this much (s) during the test
             "clock" => out.start_ms += plus(1) * 1000.0,
@@ -924,6 +935,30 @@ mod tests {
         assert_eq!(log.start_ms, 3000.0);
         assert_eq!(log.course, 15.0);
         assert!(log.samples.is_empty());
+        // The speed progression after the course: read, and nothing else
+        // changes (beeplog.js ignores it). Without one, or one the phone
+        // doesn't know, the standard speeds.
+        assert_eq!(parse(LOG).progression, 0);
+        let with = LOG.replacen("-60,20\n", "-60,20,2\n", 1);
+        let log = parse(&with);
+        assert_eq!(log.progression, 2);
+        // (Debug, since a NaN isn't equal to itself.)
+        assert_eq!(
+            format!(
+                "{:?}",
+                Log {
+                    progression: 0,
+                    ..log.clone()
+                }
+            ),
+            format!("{:?}", parse(LOG))
+        );
+        assert_eq!(to_tcx(&log, 0.0), to_tcx(&parse(LOG), 0.0));
+        assert_eq!(to_csv(&log), to_csv(&parse(LOG)));
+        for odd in ["3", "1.5", "x", "", "-1", "0x1"] {
+            let p = parse(&format!("start,0,0,20,{odd}\n")).progression;
+            assert_eq!(p, if odd == "0x1" { 1 } else { 0 }, "{odd:?}");
+        }
         // A start a Date can't hold.
         let bad = parse("start,abc\n0,1,2,3,4,5\n");
         assert_eq!(to_tcx(&bad, 0.0), Err("Invalid time value".into()));
