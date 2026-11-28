@@ -107,6 +107,18 @@ fn end_s(log: &Log) -> f64 {
         .map_or(0.0, |t| t.clamp(0.0, beeplog::LONGEST_TEST_S))
 }
 
+/// The title of a log that isn't here, after a spinner while it's coming
+/// over: it wraps within the card (a small phone with large text).
+fn missing_title(ui: &mut egui::Ui, title: &str, fetching: bool) -> egui::Response {
+    ui.horizontal(|ui| {
+        if fetching {
+            super::spinner(ui);
+        }
+        ui.add(egui::Label::new(RichText::new(title).font(medium(16.0)).strong()).wrap())
+    })
+    .inner
+}
+
 /// Draws the page for the result whose log is `f`.
 pub(super) fn show(app: &mut App, ui: &mut egui::Ui, f: &str) {
     let Some(r) = app.view.result(f).cloned() else {
@@ -123,12 +135,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, f: &str) {
             card(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
                 ui.spacing_mut().interact_size.y = 22.0;
-                ui.horizontal(|ui| {
-                    if fetching {
-                        super::spinner(ui);
-                    }
-                    ui.label(RichText::new(title).font(medium(16.0)).strong());
-                });
+                missing_title(ui, title, fetching);
                 ui.label(words);
             });
         }
@@ -614,6 +621,28 @@ mod tests {
                     let (alone, none) =
                         super::super::results::when_row(ui, RichText::new("x"), false);
                     assert!(none.is_none() && alone.rect.left() <= date.rect.left() + 0.5);
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn a_missing_logs_title_wraps_within_its_card_on_a_narrow_screen_with_large_text() {
+        for (width, scale) in [(411.0, 1.0), (320.0, 1.3), (256.0, 1.3)] {
+            in_a_frame(width, scale, |ui| {
+                // The column, before anything in it can widen it.
+                let right = ui.max_rect().right();
+                for fetching in [false, true] {
+                    let (title, frame) = super::super::card(ui, |ui| {
+                        missing_title(ui, "The log is still on the watch", fetching)
+                    });
+                    let at = format!(
+                        "{width} at {scale}, fetching {fetching}: {:?} in {:?}",
+                        title.rect, frame.rect
+                    );
+                    // The card is the column's width, the title inside it.
+                    assert!(frame.rect.right() <= right + 0.5, "{at}");
+                    assert!(title.rect.right() <= right - 16.0 + 0.5, "{at}");
                 }
             });
         }

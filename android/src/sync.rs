@@ -31,13 +31,16 @@
 //!    named in `del` ([`Store::deleted_on_watch`]). While a test runs
 //!    (`run` isn't `""`) that's all: the watch would answer any `get` with
 //!    `busy`, and it says `state` again when the test ends.
-//!    If there are pending tombstones and this `state` isn't the answer
-//!    (within [`ANSWER_WAIT_MS`]) to a `beeptest-sync` sent in answer to
-//!    the last `state` with all of them, that sync goes now and the round
-//!    waits for its answer: a sync sent while no watch was connected was
-//!    dropped, and a `state` the watch sends unasked (on connecting, or a
-//!    test ending) says nothing about the deletes. The watch is there now,
-//!    so this one reaches it.
+//!    If there are pending tombstones and this `state` isn't the answer to
+//!    a `beeptest-sync` sent in answer to a `state` with all of them (it
+//!    echoes that sync's `n`), that sync goes now, with a new `n`, and the
+//!    round waits for its answer: a sync sent while no watch was connected
+//!    was dropped, and a `state` the watch sends unasked (on connecting, or
+//!    a test ending) says nothing about the deletes. The watch is there
+//!    now, so this one reaches it, unless the link drops again (then the
+//!    next `state` doesn't echo it, and the sync goes again). A watch app
+//!    from before `n` sends `state` without one: from it, any `state`
+//!    within [`ANSWER_WAIT_MS`] of such a sync is taken as its answer.
 //! 2. If `hist` is [`Store::watch_history`]'s, the history fetched last is
 //!    still the watch's: pending tombstones it doesn't list are done
 //!    ([`Store::settle_unlisted`]). If it differs, `get`
@@ -94,6 +97,10 @@ pub const STALL_MS: i64 = 10_000;
 /// How many times a file is asked for again in a round before it is given
 /// up on until the next.
 pub const TRIES: u32 = 3;
+/// How many unanswered syncs sent in answer to a `state` are remembered:
+/// an answer to any of them counts (each can be on its way while the next
+/// goes).
+const CONFIRMS: usize = 8;
 
 /// What happened, for the engine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,16 +226,29 @@ pub struct Engine {
     fetched: usize,
     /// When the last `beeptest-sync` went, until a `state` answers it.
     asked_ms: Option<i64>,
-    /// The pending deletes the last `beeptest-sync` sent in answer to a
-    /// `state` carried, and when it went: the next `state`, if it comes
-    /// within [`ANSWER_WAIT_MS`], is taken as the watch having had them.
-    confirm: Option<(Vec<String>, i64)>,
+    /// The `beeptest-sync`s sent in answer to a `state` and not answered
+    /// yet, newest last, at most [`CONFIRMS`]: a `state` echoing one's `n`
+    /// is its answer, and the watch has had the deletes it carried.
+    confirms: Vec<Confirm>,
+    /// The last `n` given (Unix ms, or one past the last), so each is new.
+    last_n: i64,
     /// The pending deletes the watch has had by this round's `state`: the
     /// only ones its history can settle (one made on the phone since isn't
     /// known to the watch yet).
     asked: Vec<String>,
     /// The second last written as hearing from the watch.
     heard_s: Option<i64>,
+}
+
+/// A `beeptest-sync` sent in answer to a `state`, waiting for the `state`
+/// that answers it.
+#[derive(Debug)]
+struct Confirm {
+    n: String,
+    /// The pending deletes it carried.
+    names: Vec<String>,
+    /// When it went, ms.
+    at: i64,
 }
 
 #[derive(Debug)]
@@ -321,7 +341,8 @@ impl Engine {
     /// `beeptest-sync`, with the pending tombstones. A fetch under way
     /// goes on showing; otherwise it's asking.
     fn ask(&mut self, store: &Store, now_ms: i64, out: &mut Output) {
-        out.lines.push(link::sync_line(&store.pending_deletes()));
+        out.lines
+            .push(link::sync_line(&store.pending_deletes(), None));
         self.asked_ms = Some(now_ms);
         if self.transfer.is_none()
             || !matches!(
@@ -392,7 +413,7 @@ impl Engine {
         self.transfer = None;
         let busy = s.run.is_some();
         let hist = s.hist;
-        let carried = self.confirm.take();
+        let echo = s.n.clone();
         self.state = Some(s);
         if busy {
             self.state = None;
@@ -403,15 +424,33 @@ impl Engine {
         // that couldn't be delivered (no watch connected) is dropped, and
         // the watch says `state` unasked too (connecting, a test ending).
         // It's there now, so they go to it now, and the round waits for
-        // its answer: only then is a history without them (or the same
-        // hist, for one the watch had forgotten) taken as them done.
+        // its answer (the `state` echoing that sync's `n`): only then is a
+        // history without them (or the same hist, for one the watch had
+        // forgotten) taken as them done.
         let pending = store.pending_deletes();
-        let had = carried.is_some_and(|(names, at)| {
-            (now_ms - at).abs() <= ANSWER_WAIT_MS && pending.iter().all(|f| names.contains(f))
+        let had = self.confirms.iter().any(|c| {
+            pending.iter().all(|f| c.names.contains(f))
+                && match echo.as_deref() {
+                    Some(n) => c.n == n,
+                    // A watch app from before `n`: the best guess is a
+                    // state soon after the sync.
+                    None => (now_ms - c.at).abs() <= ANSWER_WAIT_MS,
+                }
         });
-        if !pending.is_empty() && !had {
-            out.lines.push(link::sync_line(&pending));
-            self.confirm = Some((pending, now_ms));
+        if had || pending.is_empty() {
+            self.confirms.clear();
+        } else {
+            self.last_n = now_ms.max(self.last_n + 1);
+            let n = self.last_n.to_string();
+            out.lines.push(link::sync_line(&pending, Some(&n)));
+            if self.confirms.len() >= CONFIRMS {
+                self.confirms.remove(0);
+            }
+            self.confirms.push(Confirm {
+                n,
+                names: pending,
+                at: now_ms,
+            });
             self.asked_ms = Some(now_ms);
             self.state = None;
             self.progress = Progress::Asking { since_ms: now_ms };
@@ -709,7 +748,14 @@ mod tests {
         format!("[{}]", items.join(",")).into_bytes()
     }
 
+    /// A `state` the watch sent unasked (or that answers a sync without
+    /// an `n`): its `n` is `""`.
     fn state(hist: Hist, run: Option<&str>, del: &[&str]) -> Input {
+        echoing(hist, run, del, Some(""))
+    }
+
+    /// A `state` with `n` as given (`None`: a watch app from before `n`).
+    fn echoing(hist: Hist, run: Option<&str>, del: &[&str], n: Option<&str>) -> Input {
         Input::Watch(WatchEvent::State(State {
             version: "0.05".into(),
             m: 20,
@@ -718,7 +764,19 @@ mod tests {
             run: run.map(str::to_string),
             hist,
             del: del.iter().map(|s| s.to_string()).collect(),
+            n: n.map(str::to_string),
         }))
+    }
+
+    /// The `n` of a sync line, if it has one.
+    fn nonce(line: &str) -> Option<String> {
+        let json = line.strip_prefix("\u{10}GB(")?.strip_suffix(")\n")?;
+        let v: serde_json::Value = serde_json::from_str(json).ok()?;
+        Some(v["n"].as_str()?.to_string())
+    }
+
+    fn names(del: &[&str]) -> Vec<String> {
+        del.iter().map(|s| s.to_string()).collect()
     }
 
     fn piece(f: &str, at: u64, d: &[u8]) -> Input {
@@ -742,6 +800,8 @@ mod tests {
         store: Store,
         engine: Engine,
         now: i64,
+        /// The `n` of the last sync the phone sent with one.
+        n: Option<String>,
     }
 
     impl T {
@@ -753,12 +813,28 @@ mod tests {
                 store,
                 engine: Engine::new(),
                 now: 1_781_400_000_000,
+                n: None,
             }
         }
 
         fn go(&mut self, input: Input) -> Vec<String> {
             self.now += 50;
-            self.engine.handle(&self.store, input, self.now).lines
+            let lines = self.engine.handle(&self.store, input, self.now).lines;
+            if let Some(n) = lines.iter().rev().find_map(|l| nonce(l)) {
+                self.n = Some(n);
+            }
+            lines
+        }
+
+        /// The sync the phone sends in answer to a `state` (the one just
+        /// handled), carrying `del`: its `n` is the time.
+        fn confirm(&self, del: &[&str]) -> String {
+            sync_line(&names(del), Some(&self.now.to_string()))
+        }
+
+        /// The watch's answer to the last sync the phone sent with an `n`.
+        fn answer(&self, hist: Hist) -> Input {
+            echoing(hist, None, &[], self.n.as_deref())
         }
 
         /// The watch has `entries` and sends its history whole in one piece.
@@ -777,7 +853,7 @@ mod tests {
     #[test]
     fn a_round_fetches_the_history_then_each_log() {
         let mut t = T::new();
-        assert_eq!(t.go(Input::Opened), vec![sync_line(&[])]);
+        assert_eq!(t.go(Input::Opened), vec![sync_line(&[], None)]);
         assert_eq!(t.engine.progress().words(), "Asking the watch...");
         let h = history(&[entry(A, 2), entry(B, 1)]);
         assert!(t.engine.progress().active());
@@ -987,10 +1063,10 @@ mod tests {
         // (after the delete again, and its answer).
         assert_eq!(
             t.go(state(Hist::default(), None, &[])),
-            vec![sync_line(&[A.into()])]
+            vec![t.confirm(&[A])]
         );
         assert_eq!(
-            t.go(state(Hist::default(), None, &[])),
+            t.go(t.answer(Hist::default())),
             vec![link::get_line(HISTORY, 0)]
         );
         assert_eq!(t.go(end(HISTORY, -1)), Vec::<String>::new());
@@ -1038,7 +1114,7 @@ mod tests {
         // Deleted on the phone mid-transfer: gone, and the sync names it.
         let out = t.engine.handle(&t.store, Input::Delete(A.into()), t.now);
         assert!(out.changed);
-        assert_eq!(out.lines, vec![sync_line(&[A.into()])]);
+        assert_eq!(out.lines, vec![sync_line(&[A.into()], None)]);
         assert_eq!(t.store.part_len(A), 0);
         assert_eq!(t.engine.progress().words(), "Asking the watch...");
         t.go(piece(A, 7, b"more"));
@@ -1046,25 +1122,33 @@ mod tests {
         // A state already on its way when the delete went (or one the
         // watch sent unasked): A goes to the watch again, and the round
         // waits for its answer.
-        assert_eq!(t.go(state(hist, None, &[])), vec![sync_line(&[A.into()])]);
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
         // An answer that still lists A (the watch hadn't the sync yet, say):
         // A isn't fetched, and isn't back.
-        assert_eq!(t.go(state(hist, None, &[])), vec![link::get_line(B, 0)]);
+        assert_eq!(t.go(t.answer(hist)), vec![link::get_line(B, 0)]);
         assert!(t.store.result(A).is_none());
         // Deleted on the watch: B goes here.
         t.go(piece(B, 0, b"b"));
         let out = t.engine.handle(&t.store, state(hist, None, &[B]), t.now);
         assert!(out.changed);
+        // (A goes to it again.)
+        assert_eq!(out.lines, vec![t.confirm(&[A])]);
+        t.n = nonce(&out.lines[0]);
         assert!(t.store.results().is_empty());
         assert_eq!(t.store.part_len(B), 0);
         assert_eq!(t.store.tombstones()[B], Tombstone::Done);
         // The next sync still names A until the watch is seen without it.
-        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[A.into()])]);
+        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[A.into()], None)]);
+        // The answer to the sync that state had sent: the watch without A.
         let h2 = history(&[]);
-        t.go(state(Hist::of(&h2), None, &[B]));
+        let n = t.n.clone();
+        assert_eq!(
+            t.go(echoing(Hist::of(&h2), None, &[B], n.as_deref())),
+            vec![link::get_line(HISTORY, 0)]
+        );
         t.go(piece(HISTORY, 0, &h2));
         t.go(end(HISTORY, h2.len() as i64));
-        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[])]);
+        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[], None)]);
     }
 
     #[test]
@@ -1080,21 +1164,28 @@ mod tests {
         t.go(end(B, -1));
         assert_eq!(t.store.watch_history().listed, vec![B]);
         assert!(t.store.result(A).is_some());
-        assert_eq!(t.go(Input::Delete(A.into())), vec![sync_line(&[A.into()])]);
-        // The state after it: the phone can't tell the answer from a state
-        // the watch sent unasked, so A goes again, in answer to it.
-        assert_eq!(t.go(state(hist, None, &[])), vec![sync_line(&[A.into()])]);
+        assert_eq!(
+            t.go(Input::Delete(A.into())),
+            vec![sync_line(&[A.into()], None)]
+        );
+        // The state after it: the delete's sync has no `n` (it may have
+        // been dropped), so this can't be told from a state the watch sent
+        // unasked, and A goes again, in answer to it.
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
         assert_eq!(t.store.tombstones()[A], Tombstone::Pending);
         // The watch had nothing of A to take out of its history: the same
         // hist. A isn't listed, so the delete is done.
-        assert_eq!(t.go(state(hist, None, &[])), Vec::<String>::new());
+        assert_eq!(t.go(t.answer(hist)), Vec::<String>::new());
         assert_eq!(t.store.tombstones()[A], Tombstone::Done);
-        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[])]);
+        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[], None)]);
         // One the watch still lists stays pending until it's seen without it.
         t.go(state(hist, None, &[]));
-        assert_eq!(t.go(Input::Delete(B.into())), vec![sync_line(&[B.into()])]);
-        assert_eq!(t.go(state(hist, None, &[])), vec![sync_line(&[B.into()])]);
-        t.go(state(hist, None, &[]));
+        assert_eq!(
+            t.go(Input::Delete(B.into())),
+            vec![sync_line(&[B.into()], None)]
+        );
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[B])]);
+        t.go(t.answer(hist));
         assert_eq!(t.store.tombstones()[B], Tombstone::Pending);
     }
 
@@ -1111,24 +1202,91 @@ mod tests {
         t.go(end(HISTORY, h.len() as i64));
         t.go(end(B, -1));
         // A deleted while the watch is away: Gadgetbridge drops the line.
-        assert_eq!(t.go(Input::Delete(A.into())), vec![sync_line(&[A.into()])]);
+        assert_eq!(
+            t.go(Input::Delete(A.into())),
+            vec![sync_line(&[A.into()], None)]
+        );
         t.now += 3_600_000;
         // The watch comes back and says state unasked (NRF.on("connect")),
         // its hist as it was. That says nothing about A: A goes now.
-        assert_eq!(t.go(state(hist, None, &[])), vec![sync_line(&[A.into()])]);
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
         assert_eq!(t.store.pending_deletes(), vec![A.to_string()]);
         assert_eq!(t.engine.progress().words(), "Asking the watch...");
         // Gone again before it answered: the next state it sends, a while
         // later, is no answer either.
         t.now += 3_600_000;
-        assert_eq!(t.go(state(hist, None, &[])), vec![sync_line(&[A.into()])]);
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
+        assert_eq!(t.store.tombstones()[A], Tombstone::Pending);
+        // Nor is one a few seconds later (the link dropped and came back,
+        // or a test ended): it doesn't echo the sync's n.
+        t.now += 5_000;
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
         assert_eq!(t.store.tombstones()[A], Tombstone::Pending);
         // The answer: done, and the round goes on.
-        assert_eq!(t.go(state(hist, None, &[])), Vec::<String>::new());
+        assert_eq!(t.go(t.answer(hist)), Vec::<String>::new());
         assert_eq!(t.store.tombstones()[A], Tombstone::Done);
         assert_eq!(t.engine.progress().words(), "Up to date");
         // With nothing pending, a state is a round straight away.
         assert_eq!(t.go(state(hist, None, &[])), Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_answer_counts_for_the_deletes_its_sync_carried() {
+        let mut t = T::new();
+        // The phone has A and B, which the watch has forgotten; it lists
+        // nothing.
+        t.store
+            .merge_history(&[entry(A, 2), entry(B, 1)], Hist::default())
+            .unwrap();
+        let h = history(&[]);
+        let hist = t.history(&[]);
+        t.go(end(HISTORY, h.len() as i64));
+        t.go(Input::Delete(A.into()));
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
+        // B deleted before the answer: the answer to the sync carrying
+        // only A doesn't settle B's delete, which goes now.
+        assert_eq!(
+            t.go(Input::Delete(B.into())),
+            vec![sync_line(&t.store.pending_deletes(), None)]
+        );
+        assert_eq!(t.go(t.answer(hist)), vec![t.confirm(&[A, B])]);
+        assert_eq!(t.store.pending_deletes(), vec![A, B]);
+        let both = t.n.clone();
+        // The delete's own sync is answered next (with no n): another
+        // sync goes.
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A, B])]);
+        // Then the answer to the one before it: it carried both, so both
+        // are done, though another went after it.
+        assert_eq!(
+            t.go(echoing(hist, None, &[], both.as_deref())),
+            Vec::<String>::new()
+        );
+        assert_eq!(t.store.pending_deletes(), Vec::<String>::new());
+        assert_eq!(t.store.tombstones()[A], Tombstone::Done);
+        assert_eq!(t.store.tombstones()[B], Tombstone::Done);
+        // A late answer to the last one starts a round, nothing more.
+        assert_eq!(t.go(t.answer(hist)), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_watch_from_before_n_is_answered_within_the_wait() {
+        let mut t = T::new();
+        t.store
+            .merge_history(&[entry(A, 2)], Hist::default())
+            .unwrap();
+        let h = history(&[]);
+        let hist = t.history(&[]);
+        t.go(end(HISTORY, h.len() as i64));
+        t.go(Input::Delete(A.into()));
+        // Its states never echo n: one long after the sync is no answer...
+        assert_eq!(t.go(echoing(hist, None, &[], None)), vec![t.confirm(&[A])]);
+        t.now += ANSWER_WAIT_MS + 1;
+        assert_eq!(t.go(echoing(hist, None, &[], None)), vec![t.confirm(&[A])]);
+        // ...one soon after it is taken as the answer, as before n, so the
+        // deletes settle rather than going back and forth for ever.
+        t.now += 1_000;
+        assert_eq!(t.go(echoing(hist, None, &[], None)), Vec::<String>::new());
+        assert_eq!(t.store.tombstones()[A], Tombstone::Done);
     }
 
     #[test]
@@ -1150,8 +1308,8 @@ mod tests {
         );
         assert_eq!(t.store.tombstones()[A], Tombstone::Pending);
         let hist = Hist::of(&h);
-        assert_eq!(t.go(state(hist, None, &[])), vec![sync_line(&[A.into()])]);
-        t.go(state(hist, None, &[]));
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
+        t.go(t.answer(hist));
         assert_eq!(t.store.tombstones()[A], Tombstone::Done);
     }
 
@@ -1168,18 +1326,18 @@ mod tests {
         t.go(Input::Delete(A.into()));
         // The watch reconnects to Gadgetbridge and says state, A still in
         // its history: the delete goes with the answer, not a get.
-        assert_eq!(t.go(state(hist, None, &[])), vec![sync_line(&[A.into()])]);
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
         // The watch deletes A and answers: its new history, fetched, has no
         // A, so the delete is done.
         let h2 = history(&[entry(B, 1)]);
         assert_eq!(
-            t.go(state(Hist::of(&h2), None, &[])),
+            t.go(t.answer(Hist::of(&h2))),
             vec![link::get_line(HISTORY, 0)]
         );
         t.go(piece(HISTORY, 0, &h2));
         assert_eq!(t.go(end(HISTORY, h2.len() as i64)), Vec::<String>::new());
         assert_eq!(t.store.tombstones()[A], Tombstone::Done);
-        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[])]);
+        assert_eq!(t.go(Input::SyncNow), vec![sync_line(&[], None)]);
         // A test ending while one is pending sends it the same way.
         t.go(Input::Delete(B.into()));
         let run = "beeptest.1781500000.csv";
@@ -1188,10 +1346,7 @@ mod tests {
             Vec::<String>::new(),
             "not while a test runs"
         );
-        assert_eq!(
-            t.go(state(Hist::of(&h2), None, &[])),
-            vec![sync_line(&[B.into()])]
-        );
+        assert_eq!(t.go(state(Hist::of(&h2), None, &[])), vec![t.confirm(&[B])]);
     }
 
     #[test]
@@ -1204,7 +1359,10 @@ mod tests {
         assert_eq!(t.engine.progress().words(), "Fetching 1 of 2 logs...");
         // The watch went out of range (which is why A is still arriving),
         // and A is deleted here.
-        assert_eq!(t.go(Input::Delete(A.into())), vec![sync_line(&[A.into()])]);
+        assert_eq!(
+            t.go(Input::Delete(A.into())),
+            vec![sync_line(&[A.into()], None)]
+        );
         assert_eq!(t.engine.progress().words(), "Asking the watch...");
         for _ in 0..(ANSWER_WAIT_MS / 1000) {
             t.now += 1000;
@@ -1219,8 +1377,8 @@ mod tests {
         assert_eq!(t.engine.progress(), &Progress::NoAnswer);
         // A delete of another result leaves a fetch under way showing.
         let hist = t.store.watch_history().hist;
-        assert_eq!(t.go(state(hist, None, &[])), vec![sync_line(&[A.into()])]);
-        assert_eq!(t.go(state(hist, None, &[])), vec![link::get_line(B, 0)]);
+        assert_eq!(t.go(state(hist, None, &[])), vec![t.confirm(&[A])]);
+        assert_eq!(t.go(t.answer(hist)), vec![link::get_line(B, 0)]);
         t.go(Input::Delete("beeptest.1.csv".into()));
         assert_eq!(t.engine.progress().words(), "Fetching the log...");
     }

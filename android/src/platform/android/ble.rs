@@ -79,6 +79,10 @@ struct Link {
     /// The scan's callback while the link looks for the watch it waits for
     /// ([`watch_ble::Reach::DeviceAndScan`]).
     seek: Option<GlobalRef>,
+    /// Whether `seek` was started while the app wasn't in front (after a
+    /// reboot, from `BootReceiver`; or by the keeper): [`in_front`] starts
+    /// it again.
+    seek_behind: bool,
     /// Whether a scan saw the watch, or the link connected to it, since
     /// Bluetooth last came on (as far as the link can tell): then Android
     /// knows its address type. Not cleared by [`close`].
@@ -92,6 +96,8 @@ struct Link {
 
 /// Whether `WatchService` is running.
 static SERVICE: AtomicBool = AtomicBool::new(false);
+/// Whether the app is in front ([`in_front`], [`to_back`]).
+static FRONT: AtomicBool = AtomicBool::new(false);
 
 static LINK: Mutex<Link> = Mutex::new(Link {
     gatt: None,
@@ -104,6 +110,7 @@ static LINK: Mutex<Link> = Mutex::new(Link {
     connected: false,
     scan: None,
     seek: None,
+    seek_behind: false,
     seen: false,
     since: None,
     clock: None,
@@ -254,6 +261,34 @@ pub fn keep() {
     ensure();
 }
 
+/// The app came to the front (it opened, or came back). A scan for the
+/// watch started while it wasn't ([`Link::seek_behind`]) is started again,
+/// with the connection waiting with it: on Android 10 and 11, with
+/// Location allowed only while the app is in use (the manifest doesn't
+/// ask for it in the background), a scan started from the background gets
+/// no results for as long as it runs, even once the app is open. One
+/// started now keeps getting them after the app goes back.
+pub fn in_front() {
+    FRONT.store(true, Ordering::Relaxed);
+    let again = {
+        let mut l = link();
+        let again = l.seek.is_some() && l.seek_behind && !l.connected;
+        if again {
+            log::info!("watch link: in front; looking for the watch again");
+            close(&mut l);
+        }
+        again
+    };
+    if again {
+        ensure();
+    }
+}
+
+/// The app went to the back ([`in_front`]).
+pub fn to_back() {
+    FRONT.store(false, Ordering::Relaxed);
+}
+
 /// Makes the connection the setting asks for, if it isn't there.
 fn ensure() {
     let settings = watch_ble::settings();
@@ -272,6 +307,17 @@ fn ensure() {
     if l.gatt.is_some() && l.address.as_deref() == Some(watch.address.as_str()) {
         let waited = l.since.map_or(Duration::ZERO, |t| t.elapsed());
         if l.connected || waited < watch_ble::WAIT_AT_MOST {
+            // Location turned on or off since, while a scan looks.
+            if !l.connected && l.seek.is_some() {
+                let now = watch_ble::waiting(watch_ble::Reach::DeviceAndScan, location_off());
+                if matches!(
+                    watch_ble::status(),
+                    Status::Connecting | Status::LocationOff
+                ) && watch_ble::status() != now
+                {
+                    status(now);
+                }
+            }
             return;
         }
         log::info!(
@@ -287,6 +333,8 @@ fn ensure() {
         status(Status::NotAllowed);
         return;
     }
+    // Only a scan needs it (the watch not seen since Bluetooth came on).
+    let no_location = !l.seen && location_off();
     with_env(
         |env, ctx| {
             let adapter = adapter(env, ctx)?;
@@ -341,7 +389,9 @@ fn ensure() {
             l.gatt = Some(env.new_global_ref(&gatt)?);
             l.address = Some(watch.address.clone());
             l.since = Some(Instant::now());
-            status(Status::Connecting);
+            // With Location off (Android 11 and earlier), the scan finds
+            // nothing until it's on: say so, rather than "Looking for it".
+            status(watch_ble::waiting(reach, no_location));
             log::info!("watch link: waiting for {} ({reach:?})", watch.name);
             if reach == watch_ble::Reach::DeviceAndScan {
                 seek(env, ctx, &adapter, &watch.name, &mut l)?;
@@ -482,7 +532,15 @@ fn seek(
         ],
     )?;
     l.seek = Some(env.new_global_ref(&callback)?);
-    log::info!("watch link: looking for the watch too");
+    l.seek_behind = !FRONT.load(Ordering::Relaxed);
+    log::info!(
+        "watch link: looking for the watch too{}",
+        if l.seek_behind {
+            " (from the background)"
+        } else {
+            ""
+        }
+    );
     Ok(())
 }
 

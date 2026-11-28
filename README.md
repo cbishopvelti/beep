@@ -158,7 +158,10 @@ directly, without Gadgetbridge**, allow "Nearby devices" (location on Android 11
 which also need the phone's Location switched on to find the watch), and pick the watch from
 the list. The watch takes one phone connection at a time, so disconnect it in Gadgetbridge
 first. While the switch is on the app shows a quiet notification, which keeps the watch
-connected when the app is closed, and after the phone restarts.
+connected when the app is closed, and after the phone restarts. On Android 10 and 11, open the
+app once after the phone restarts (or Bluetooth is turned off and on): until then it can't look
+for the watch, and the app's Watch page says "Turn on Location to find it" while the phone's
+Location is off.
 
 The watch takes one connection at a time from a computer too. To connect the App Loader or
 the Web IDE to it (to install a new version, or download exports), turn the switch off first,

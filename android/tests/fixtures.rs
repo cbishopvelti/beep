@@ -29,13 +29,18 @@ const A: &str = "beeptest.1781344800.csv";
 const B: &str = "beeptest.1781258400.csv";
 const C: &str = "beeptest.1781172000.csv";
 const D: &str = "beeptest.1781085600.csv";
+/// The `n` of the sync the phone sends in answer to the exchange's first
+/// `state` (the time it handles it, as [`watch_lines_txt_leaves_the_exchanges_results_stored`]
+/// runs it): the exchange's own sync carries it (`tests/fixtures.test.js`
+/// `N`), so the watch's answer echoes it.
+const N: &str = "1781400000050";
 
 /// One of each line, with the names the watch's fixture test has on the
 /// watch (A, B and C; D deleted there).
 fn phone_lines() -> String {
     [
-        link::sync_line(&[]),
-        link::sync_line(&[C.to_string(), D.to_string()]),
+        link::sync_line(&[], None),
+        link::sync_line(&[C.to_string(), D.to_string()], Some(N)),
         link::get_line(HISTORY, 0),
         link::get_line(A, 0),
         link::get_line(B, 2000),
@@ -145,19 +150,19 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
     let mut sent = Vec::new();
     // The app opens: the sync deleting C, as in the exchange.
     sent.extend(engine.handle(&store, Input::Opened, now).lines);
-    assert_eq!(sent, vec![link::sync_line(&[C.into()])]);
+    assert_eq!(sent, vec![link::sync_line(&[C.into()], None)]);
     for event in events.iter().cloned() {
         now += 50;
         sent.extend(engine.handle(&store, event, now).lines);
     }
     // What the phone asked for along the way: C's delete again after the
-    // first state (it can't tell an answer from a state the watch sent
-    // unasked, so it waits for the next), the history after the second,
-    // then A, then B.
+    // first state (sent unasked, on connecting, so it says nothing about
+    // C), with an n; the history after the second, which echoes it; then
+    // A, then B.
     assert_eq!(
         sent[1..],
         [
-            link::sync_line(&[C.into()]),
+            link::sync_line(&[C.into()], Some(N)),
             link::get_line(HISTORY, 0),
             link::get_line(A, 0),
             link::get_line(B, 0),
@@ -187,17 +192,20 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
             avg: 120,
         }
     );
+    // B ran on speed progression 1, its entry and log as an engine with
+    // the Speeds setting writes them (A as one from before it: no p).
     assert_eq!(
         (
             results[1].entry.m,
+            results[1].entry.p,
             results[1].entry.l,
             results[1].entry.s,
             results[1].entry.d
         ),
-        (15, 3, 5, 360)
+        (15, 1, 3, 5, 360)
     );
     // The logs, byte for byte what the watch sent.
-    for (f, len) in [(A, 9140), (B, 3361)] {
+    for (f, len) in [(A, 9140), (B, 3363)] {
         assert_eq!(store.log_state(f), LogState::Complete, "{f}");
         let bytes = std::fs::read(store.log_path(f)).unwrap();
         assert_eq!(bytes.len(), len, "{f}");
@@ -209,7 +217,8 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
         (a.course, a.end.unwrap().level, a.end.unwrap().shuttle),
         (20.0, 7.0, 3.0)
     );
-    assert_eq!(store.log(B).unwrap().course, 15.0);
+    let b = store.log(B).unwrap();
+    assert_eq!((a.progression, b.course, b.progression), (0, 15.0, 1));
     // C (deleted here, then gone from the watch's history) and D (deleted
     // on the watch) are tombstones, done.
     let tombstones = store.tombstones();
@@ -219,7 +228,7 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
     // The history as fetched, and the watch's settings as it last said.
     assert_eq!(
         store.watch_history().hist,
-        Hist::parse("216:21098452").unwrap()
+        Hist::parse("222:1581965620").unwrap()
     );
     assert_eq!(store.watch_history().listed, vec![A, B]);
     let w = store.watch_state();
@@ -243,4 +252,13 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
         assert_eq!(ps, [None, None, None]);
         assert_eq!(w.p, None);
     }
+    // Only the answer to the phone's sync echoes its n.
+    let ns: Vec<Option<&str>> = events
+        .iter()
+        .filter_map(|e| match e {
+            Input::Watch(link::WatchEvent::State(s)) => Some(s.n.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ns, [Some(""), Some(N), Some("")]);
 }

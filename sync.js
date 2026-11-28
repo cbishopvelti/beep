@@ -79,9 +79,11 @@ function tombstones() {
 /* Tells the phone how the watch is: the version installed, the settings
    (with the speed progression when the engine has them, as app.js reads
    it: 0 unless it's one of them), the running test, the history's length
-   and CRC (so the phone fetches it only when it changed) and what was
-   deleted on the watch. */
-function state() {
+   and CRC (so the phone fetches it only when it changed), what was
+   deleted on the watch, and n: the n of the beeptest-sync this answers
+   (digits; "" when it answers none), so the phone can tell its answer
+   from a state sent unasked. */
+function state(n) {
   if (!connected()) return;
   var s = S.readJSON(SETTINGS, 1) || {}, h = history();
   var info = S.readJSON("beeptest.info", 1) || {};
@@ -92,7 +94,8 @@ function state() {
     gps: s.gps ? "true" : "false",
     run: running(),
     hist: h === undefined ? "0:0" : h.length + ":" + crc(h),
-    del: tombstones().join(",")
+    del: tombstones().join(","),
+    n: typeof n == "string" && n.length <= 20 && /^\d+$/.test(n) ? n : ""
   };
   var P = progs();
   if (P) e.p = String(P[s.p] ? s.p : 0);
@@ -176,8 +179,9 @@ function get(f, at) {
 }
 
 /* beeptest-sync: deletes the results the phone deleted (their history
-   entries and logs; never the running test's), then answers state. */
-function sync(del) {
+   entries and logs; never the running test's), then answers state,
+   echoing the sync's n. */
+function sync(del, n) {
   var run = running();
   var names = (Array.isArray(del) ? del : []).filter(function (f) {
     return typeof f == "string" && LOG.test(f) && f != run;
@@ -193,7 +197,7 @@ function sync(del) {
       S.open(f, "r").erase();
     });
   }
-  state();
+  state(n);
 }
 
 /* beeptest-set: the course (20 or 15), GPS speed and speed progression
@@ -222,7 +226,7 @@ function deleted(f) {
 
 // A message from the phone ({t:"beeptest-..."}, from the boot file's GB())
 function msg(e) {
-  if (e.t == "beeptest-sync") sync(e.del);
+  if (e.t == "beeptest-sync") sync(e.del, e.n);
   else if (e.t == "beeptest-get") get(e.f, e.at);
   else if (e.t == "beeptest-set") set(e);
 }

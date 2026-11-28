@@ -645,13 +645,17 @@ pub(crate) fn medium(size: f32) -> FontId {
 /// levels table on a small phone) no longer fit.
 pub const TEXT_SCALE: std::ops::RangeInclusive<f32> = 0.85..=1.3;
 
-/// The text scale applied ([`set_text_sizes`]), as f32 bits.
-static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
+thread_local! {
+    /// The text scale applied ([`set_text_sizes`]). The UI draws on one
+    /// thread, and it's that thread's: each test (a thread of its own)
+    /// has its own, so tests at different sizes don't change each other's.
+    static SCALE: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
 
 /// What the text sizes are multiplied by: Android's font size setting
 /// (`Configuration.fontScale`), kept within [`TEXT_SCALE`]; 1 until known.
 pub(crate) fn text_scale() -> f32 {
-    f32::from_bits(SCALE.load(std::sync::atomic::Ordering::Relaxed))
+    SCALE.get()
 }
 
 /// The scale for the phone's font size setting `asked` (1 when it can't
@@ -666,7 +670,7 @@ pub fn scale_for(asked: Option<f32>) -> f32 {
 /// The text styles at `scale` times the app's own sizes (17 sp body text,
 /// as blink's), and [`medium`]'s too from now on.
 pub fn set_text_sizes(ctx: &egui::Context, scale: f32) {
-    SCALE.store(scale.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    SCALE.set(scale);
     ctx.all_styles_mut(|style| {
         use egui::FontFamily::Proportional;
         style.text_styles = [
@@ -856,6 +860,21 @@ mod tests {
         assert!((bold - 20.8).abs() < 1e-4, "{bold}");
         assert_eq!(ctx.style().text_styles[&TextStyle::Body].size, 17.0);
         assert_eq!(medium(16.0).size, 16.0);
+    }
+
+    #[test]
+    fn the_text_scale_is_the_drawing_threads_own() {
+        // Another test (or anything else) at another size, at the same
+        // time, on its thread: this one's sizes stay as they are.
+        set_text_sizes(&egui::Context::default(), 1.0);
+        std::thread::spawn(|| {
+            set_text_sizes(&egui::Context::default(), 1.3);
+            assert!((medium(16.0).size - 20.8).abs() < 1e-4);
+        })
+        .join()
+        .unwrap();
+        assert_eq!(medium(16.0).size, 16.0);
+        assert_eq!(text_scale(), 1.0);
     }
 
     #[test]

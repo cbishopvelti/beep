@@ -76,16 +76,21 @@ async function untilEnd(h, f, from, ms) {
 /* Write a test's log and return its history entry, as lib.js would for a
    test on an m metre course that started at `start` (s since 1970) and
    ran `dur` seconds, with a made-up heart rate. It doesn't depend on the
-   watch's clock, so it's the same in every run. */
-function makeLog(h, start, m, dur) {
+   watch's clock, so it's the same in every run. With a speed progression
+   `prog`, the log and entry are as an engine with the Speeds setting
+   writes them (a fifth field on the start line, and p in the entry); the
+   levels in them are the standard speeds' either way, so they don't depend
+   on the installed engine (only the format matters to the tests). */
+function makeLog(h, start, m, dur, prog) {
+  const has = prog !== undefined;
   return h.eval(`(function(){var b=${BT},f=require("Storage").open("beeptest.${start}.csv","w"),` +
-    `s="start,${start * 1000},-60,${m}\\n",p,t;` +
+    `s="start,${start * 1000},-60,${m}${has ? "," + prog : ""}\\n",p,t;` +
     `for(t=0;t<=${dur};t++){p=b.position(${m},t);` +
     `s+=t.toFixed(1)+","+(100+t%40)+","+(t<5?20:95)+","+p.level+","+p.shuttle+","+(p.total*${m}).toFixed(1)+"\\n";` +
     `if(s.length>900){f.write(s);s="";}}` +
     `p=b.position(${m},${dur});var r=b.result(${m},p);` +
     `s+="end,${dur}.0,"+r.l+","+r.s+","+p.total*${m}+",139,120\\n";f.write(s);` +
-    `return {t:${start * 1000},m:${m},l:r.l,s:r.s,d:p.total*${m},dur:${dur},max:139,avg:120,f:"beeptest.${start}.csv"}})()`);
+    `return {t:${start * 1000},m:${m},${has ? "p:" + prog + "," : ""}l:r.l,s:r.s,d:p.total*${m},dur:${dur},max:139,avg:120,f:"beeptest.${start}.csv"}})()`);
 }
 
 module.exports = { BT, timeAt, startAgo, spyBuzz, spyMenu, menuItems, spyDraw, captureButton, press, tap, readFile,

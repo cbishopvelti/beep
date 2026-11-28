@@ -7,7 +7,10 @@
 //!
 //! Half the seeds' watches (the even ones) have speed progressions (the Speeds setting:
 //! `state` says `p`, `set` takes it, results carry it) and half are from
-//! before it (no `p` anywhere, and a `p` set from the phone ignored).
+//! before it (no `p` anywhere, and a `p` set from the phone ignored). A
+//! third of them (seeds 2, 5, 8...) run a `sync.js` from before `n`: their
+//! `state` never has one, so the phone falls back to taking a `state` soon
+//! after its sync as the answer.
 //!
 //! Each seeded run throws a while of chaos at both ends (tests run, are
 //! cancelled and deleted on the watch, results deleted on the phone, the
@@ -82,6 +85,9 @@ struct FakeWatch {
     /// the one it's set to.
     progs: bool,
     p: u32,
+    /// Whether its `sync.js` echoes a sync's `n` in `state` (and says
+    /// `n` `""` in every other); one from before `n` has none.
+    echo: bool,
     run: Option<String>,
     xfer: Option<Xfer>,
     connected: bool,
@@ -96,8 +102,9 @@ struct FakeWatch {
 }
 
 impl FakeWatch {
-    fn new(progs: bool) -> FakeWatch {
+    fn new(progs: bool, echo: bool) -> FakeWatch {
         FakeWatch {
+            echo,
             files: BTreeMap::new(),
             history: None,
             del: Vec::new(),
@@ -152,6 +159,11 @@ impl FakeWatch {
     }
 
     fn state(&mut self) {
+        self.answer("");
+    }
+
+    /// `state`, answering a sync whose `n` was `n` (`""`: none).
+    fn answer(&mut self, n: &str) {
         let hist = match self.history_json() {
             Some(h) => format!("{}:{}", h.len(), link::crc32(&h)),
             None => "0:0".into(),
@@ -165,6 +177,9 @@ impl FakeWatch {
             ("hist", hist),
             ("del", self.del.join(",")),
         ];
+        if self.echo {
+            extra.push(("n", n.to_string()));
+        }
         if self.progs {
             extra.push(("p", self.p.to_string()));
         }
@@ -218,7 +233,13 @@ impl FakeWatch {
                         }
                     }
                 }
-                self.state();
+                // sync.js echoes an n of digits only.
+                let n = e["n"]
+                    .as_str()
+                    .filter(|n| n.len() <= 20 && n.bytes().all(|b| b.is_ascii_digit()))
+                    .unwrap_or("")
+                    .to_string();
+                self.answer(&n);
             }
             Some("beeptest-get") => {
                 self.xfer = None;
@@ -571,7 +592,7 @@ struct World {
 impl World {
     fn new(seed: u64) -> World {
         let mut rng = Rng::new(seed);
-        let mut watch = FakeWatch::new(seed.is_multiple_of(2));
+        let mut watch = FakeWatch::new(seed.is_multiple_of(2), seed % 3 != 2);
         // Results from before the phone app, some past the 30 it keeps.
         watch.connected = false;
         for _ in 0..20 + rng.below(20) {
@@ -599,7 +620,7 @@ impl World {
     fn with(seed: u64, n: usize) -> World {
         let mut w = World::new(seed);
         w.link.lossy = false;
-        w.watch = FakeWatch::new(seed.is_multiple_of(2));
+        w.watch = FakeWatch::new(seed.is_multiple_of(2), true);
         w.watch.connected = false;
         for _ in 0..n {
             let r = &mut w.rng;
@@ -963,7 +984,7 @@ fn the_phone_converges_to_the_watch_over_a_bad_link() {
         let sent = w.settle();
         assert_eq!(
             sent,
-            vec![link::sync_line(&[])],
+            vec![link::sync_line(&[], None)],
             "seed {seed}: a second sync fetched"
         );
         assert_eq!(w.phone.store.results(), before, "seed {seed}");
@@ -1135,6 +1156,48 @@ fn a_delete_made_while_the_watch_is_away_reaches_it_when_it_connects() {
             .any(|e| e.f == kept)
     );
     assert_eq!(w.phone.store.pending_deletes(), Vec::<String>::new());
+    w.check(8);
+}
+
+#[test]
+fn a_delete_whose_sync_is_lost_again_isnt_settled_by_the_next_state() {
+    // A result the watch's history has forgotten (its log still on it),
+    // deleted on the phone while the watch is away.
+    let mut w = World::with(8, 3);
+    w.settle();
+    let forgotten = w.watch.history.clone().unwrap()[2].f.clone();
+    for _ in 0..KEEP {
+        let r = &mut w.rng;
+        w.watch.start_test(r);
+        w.watch.stop_test(r);
+    }
+    w.settle();
+    assert!(w.watch.files.contains_key(&forgotten));
+    w.watch.connect(false);
+    w.phone(Input::Delete(forgotten.clone()));
+    while w.deliver_to_watch() {}
+    // The watch comes back: its connect state reaches the phone, which
+    // answers with a sync carrying the delete...
+    w.now += 3_600_000;
+    w.watch.connect(true);
+    w.flush_watch();
+    assert!(w.deliver_to_phone());
+    assert_eq!(w.link.to_watch.len(), 1);
+    // ...which is lost (the link drops again), and the watch reconnects
+    // a few seconds later and says state again by itself: not the
+    // answer, so the delete goes again, and reaches it this time.
+    w.watch.connect(false);
+    while w.deliver_to_watch() {}
+    w.now += 5_000;
+    w.watch.connect(true);
+    w.flush_watch();
+    run_by_itself(&mut w);
+    assert!(
+        !w.watch.files.contains_key(&forgotten),
+        "{forgotten}'s log is still on the watch"
+    );
+    assert_eq!(w.phone.store.tombstones()[&forgotten], Tombstone::Done);
+    w.settle();
     w.check(8);
 }
 

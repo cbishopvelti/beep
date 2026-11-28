@@ -13,7 +13,10 @@
 //! [`Sleepy`] passes every event to eframe and, while there's no window, has
 //! the loop wait for the next event instead. Coming back (`resumed`) gives
 //! eframe its window and the loop to run as before, and syncs
-//! ([`crate::sync::Input::Opened`]): the app came back to the front.
+//! ([`crate::sync::Input::Opened`]): the app came back to the front. Each
+//! `resumed` and `suspended` also tells the direct link
+//! ([`super::ble::in_front`], [`super::ble::to_back`]), which starts a
+//! scan for the watch again when one started in the background.
 
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
@@ -41,6 +44,9 @@ impl<T: 'static, A: ApplicationHandler<T>> ApplicationHandler<T> for Sleepy<A> {
         // The first `resumed` is the app starting, where the UI's first
         // frame syncs; later ones are coming back to the front.
         let back = std::mem::replace(&mut self.away, false);
+        // Before the app's first frame, so a scan the link starts then
+        // counts as started in front.
+        super::ble::in_front();
         self.app.resumed(event_loop);
         if back {
             crate::platform::dispatch(crate::sync::Input::Opened);
@@ -70,6 +76,7 @@ impl<T: 'static, A: ApplicationHandler<T>> ApplicationHandler<T> for Sleepy<A> {
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
         self.away = true;
+        super::ble::to_back();
         self.app.suspended(event_loop);
         event_loop.set_control_flow(ControlFlow::Wait);
     }

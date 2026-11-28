@@ -47,8 +47,8 @@ pub const MAX_DEL: usize = 30;
 /// The extras the watch's events can have: what `WatchReceiver` reads off
 /// the broadcast (Android has no way to list a bundle's string extras that
 /// is any simpler) into the map for [`parse_event`].
-pub const EXTRAS: [&str; 13] = [
-    "event", "v", "m", "gps", "p", "run", "hist", "del", "f", "at", "crc", "d", "len",
+pub const EXTRAS: [&str; 14] = [
+    "event", "v", "m", "gps", "p", "run", "hist", "del", "n", "f", "at", "crc", "d", "len",
 ];
 /// The most digits a log's name may have: the watch names them by the
 /// test's start in Unix seconds (10 digits until 2286). Any more and the
@@ -56,6 +56,8 @@ pub const EXTRAS: [&str; 13] = [
 const MAX_NAME_DIGITS: usize = 20;
 /// The longest `v` taken.
 const MAX_VERSION: usize = 32;
+/// The most digits a `beeptest-sync`'s `n` (and `state`'s echo of it) has.
+pub const MAX_NONCE_DIGITS: usize = 20;
 
 /// A file's length and CRC32, as `state`'s `hist` gives the history's:
 /// `"<length>:<crc>"`, the CRC unsigned decimal. `"0:0"` is no history.
@@ -182,14 +184,19 @@ pub fn json_str(s: &str) -> String {
     out
 }
 
-/// `\x10GB({"t":"beeptest-sync","del":[...]})\n`: asks the watch to delete
-/// the results named in `del` (log file names) and answer `state`. `del` is
-/// left out when there are none.
-pub fn sync_line(del: &[String]) -> String {
+/// `\x10GB({"t":"beeptest-sync","del":[...],"n":"..."})\n`: asks the
+/// watch to delete the results named in `del` (log file names) and answer
+/// `state`, which echoes `n` (a string of digits that tells this sync's
+/// answer from any other `state`). `del` is left out when there are none,
+/// and `n` when it's `None`.
+pub fn sync_line(del: &[String], n: Option<&str>) -> String {
     let mut json = String::from("{\"t\":\"beeptest-sync\"");
     if !del.is_empty() {
         let names: Vec<String> = del.iter().map(|f| json_str(f)).collect();
         json.push_str(&format!(",\"del\":[{}]", names.join(",")));
+    }
+    if let Some(n) = n {
+        json.push_str(&format!(",\"n\":{}", json_str(n)));
     }
     json.push('}');
     gb(&json)
@@ -248,6 +255,10 @@ pub struct State {
     /// Log file names of results deleted on the watch, newest last, at most
     /// 30 (`""` is none).
     pub del: Vec<String>,
+    /// The `n` of the `beeptest-sync` this answers: `Some("")` when it
+    /// answers none (sent unasked, or after a `beeptest-set`), `None` from
+    /// a watch app from before `n`, whose `state` has none.
+    pub n: Option<String>,
 }
 
 /// A `log` event: a piece of a file asked for with [`get_line`].
@@ -322,7 +333,8 @@ fn shown(s: &str) -> String {
 ///   ([`is_log_name`]; `f` may also be [`HISTORY`]);
 /// - `m` not `"20"` or `"15"`, `gps` not `"true"` or `"false"`, `p` (when
 ///   there is one) not `"0"`, `"1"` or `"2"`, `hist` not
-///   `"<length>:<crc>"`, `at` or `crc` not an unsigned decimal (`crc` at
+///   `"<length>:<crc>"`, `n` (when there is one) not `""` or at most
+///   [`MAX_NONCE_DIGITS`] digits, `at` or `crc` not an unsigned decimal (`crc` at
 ///   most 0xFFFFFFFF), `len` not one or `"-1"`;
 /// - `del` with more than [`MAX_DEL`] names;
 /// - `d` longer than [`MAX_PIECE`] bytes, or with a char past U+00FF;
@@ -393,6 +405,13 @@ pub fn parse_event(extras: &BTreeMap<String, String>) -> Result<WatchEvent, Refu
                     })
                     .collect::<Result<_, _>>()?,
             };
+            let n = match extras.get("n") {
+                None => None,
+                Some(n) if n.len() <= MAX_NONCE_DIGITS && n.bytes().all(|b| b.is_ascii_digit()) => {
+                    Some(n.clone())
+                }
+                Some(other) => return Err(bad("n", other)),
+            };
             Ok(WatchEvent::State(State {
                 version: version.to_string(),
                 m,
@@ -401,6 +420,7 @@ pub fn parse_event(extras: &BTreeMap<String, String>) -> Result<WatchEvent, Refu
                 run,
                 hist,
                 del,
+                n,
             }))
         }
         "log" => {
@@ -561,10 +581,17 @@ mod tests {
 
     #[test]
     fn the_lines_are_exactly_these() {
-        assert_eq!(sync_line(&[]), "\u{10}GB({\"t\":\"beeptest-sync\"})\n");
         assert_eq!(
-            sync_line(&["beeptest.1.csv".into(), "beeptest.22.csv".into()]),
+            sync_line(&[], None),
+            "\u{10}GB({\"t\":\"beeptest-sync\"})\n"
+        );
+        assert_eq!(
+            sync_line(&["beeptest.1.csv".into(), "beeptest.22.csv".into()], None),
             "\u{10}GB({\"t\":\"beeptest-sync\",\"del\":[\"beeptest.1.csv\",\"beeptest.22.csv\"]})\n"
+        );
+        assert_eq!(
+            sync_line(&["beeptest.1.csv".into()], Some("1781400000050")),
+            "\u{10}GB({\"t\":\"beeptest-sync\",\"del\":[\"beeptest.1.csv\"],\"n\":\"1781400000050\"})\n"
         );
         assert_eq!(
             get_line(HISTORY, 0),
@@ -687,6 +714,7 @@ mod tests {
                     crc: 21_098_452
                 },
                 del: vec!["beeptest.1781085600.csv".into(), "beeptest.2.csv".into()],
+                n: None,
             }))
         );
         let mut s = state();
@@ -709,6 +737,14 @@ mod tests {
                 panic!()
             };
             assert_eq!(st.p, Some(p));
+        }
+        // The answer to a sync echoes its n; any other state has "".
+        for n in ["", "1781400000050", &"9".repeat(MAX_NONCE_DIGITS)] {
+            s.insert("n".into(), n.into());
+            let WatchEvent::State(st) = parse_event(&s).unwrap() else {
+                panic!()
+            };
+            assert_eq!(st.n.as_deref(), Some(n));
         }
 
         // As many deletions as the watch remembers, and no more.
@@ -815,6 +851,10 @@ mod tests {
             with("p", " 1"),
             with("p", ""),
             with("p", "01"),
+            with("n", "12a"),
+            with("n", " 1"),
+            with("n", "-1"),
+            with("n", &"1".repeat(21)),
             without("event"),
             without("v"),
             without("m"),

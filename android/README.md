@@ -30,7 +30,7 @@ The pages, from the menu (from the desktop build with demo data; more in `screen
 | `src/platform/mod.rs` | The process's one store and sync engine: every input goes through `platform::dispatch`, which runs it under one lock and sends the lines it returns. The desktop's versions of the platform calls (they log). |
 | `src/platform/android.rs` | Android over JNI: sending a line (the Gadgetbridge broadcast, or the direct link), `WatchReceiver`'s broadcast (which needs no UI: the process may have started just for it), `BootReceiver`, the share sheet, the theme and the system bars, the back key on Results (`leave`), the safe area, the density and the font size. |
 | `src/platform/android/ble.rs` | The direct link's Bluetooth calls, ported from blink's: the GATT connection to the watch's UART service (`WatchGatt` reports it), the scan for watches (`WatchScan`) for the picker and to find the watch again after Bluetooth restarts, whether Location is off where scanning needs it, and `WatchService`, the foreground service that keeps it while the app is closed. |
-| `src/platform/android/ui_loop.rs` | blink's event loop wrapper, which lets the loop sleep while the app is in the background (eframe 0.33 would otherwise spin a CPU core), and syncs when the app comes back to the front. |
+| `src/platform/android/ui_loop.rs` | blink's event loop wrapper, which lets the loop sleep while the app is in the background (eframe 0.33 would otherwise spin a CPU core), and syncs when the app comes back to the front (and tells the direct link, which starts a scan begun in the background again). |
 | `src/ui.rs` | The shell around the pages, as blink's: the theme and fonts (the text sizes times the phone's font size setting, up to 1.3), the cards and buttons, the header and the slide-out menu, the back key (the menu, then a pop-up, then back to Results; on Results it moves the app to the background, `platform::leave`), the safe area, and `Input::Opened` and `Input::Tick` for the sync engine. |
 | `src/ui/results.rs` | Results, the first page: the running-test banner, what the sync is doing with Sync now, the progress chart, and a card per result, newest first, with "★ Best" on the best of each course and speed progression, and the speeds on a card that ran other than the standard ones. With no results, how to connect the watch. |
 | `src/ui/result.rs` | A result: the summary, the heart rate chart with the levels, the levels table, the "<50%" option, Share TCX and Share CSV, and Delete (asks first). A log that hasn't arrived, or that the watch doesn't have, gets a card saying why instead. |
@@ -46,7 +46,8 @@ The pages, from the menu (from the desktop build with demo data; more in `screen
 | `tests/sync.rs` | The sync engine against a fake watch (`sync.js` as the phone sees it, half the seeds with speed progressions and half without) over a link that loses, repeats and reorders lines, with the app killed, the watch going back to the clock mid-transfer, a bad patch where its log pieces are lost, and forged events; and checks the phone ends with what the watch has, and the watch without the logs of anything deleted on the phone. `BEEP_SEEDS=500` runs more seeds. |
 | `tests/fixtures.rs` | The lines shared with the watch's tests (`tests/fixtures/` at the repo root; see "Shared fixtures" below). |
 | `tests/beeplog.rs` | The log port against the files `beeplog.js` wrote (`tests/fixtures/beeplog/`). |
-| `tests/ui_result.rs`, `tests/ui_watch.rs`, `tests/ui_odd_logs.rs` | The pages clicked through headlessly (`egui_kittest`, no pixels) on the demo data: a result, the low-confidence option reaching the TCX, sharing, deleting and the back key, Results keeping its place, the progress chart's legend on a narrow screen, a result on other speeds; the menu, the Watch page's settings waiting for the watch's answer (and changed back before it), Speeds only while the watch has them, the running-test banner, and the theme; and a log with numbers no test has (a sample at 1e12 s, Infinity bpm), which opens and draws at once. |
+| `tests/tables.rs` | The tables port against `lib.js`'s own numbers for every shuttle of each course and speed progression (`tests/fixtures/tables.json`, which `make.js` writes). |
+| `tests/ui_result.rs`, `tests/ui_watch.rs`, `tests/ui_watch_narrow.rs`, `tests/ui_odd_logs.rs` | The pages clicked through headlessly (`egui_kittest`, no pixels) on the demo data: a result, the low-confidence option reaching the TCX, sharing, deleting and the back key, Results keeping its place, the progress chart's legend on a narrow screen, a result on other speeds; the menu, the Watch page's settings waiting for the watch's answer (and changed back before it), Speeds only while the watch has them, the running-test banner, and the theme; the Watch page's Course and Speeds rows on 320 and 360 dp phones with large text (`BEEP_FONT_SCALE`), their chips clear of their labels; and a log with numbers no test has (a sample at 1e12 s, Infinity bpm), which opens and draws at once. |
 | `app/src/main/java/com/cbishopvelti/beep/WatchReceiver.java` | Gadgetbridge's broadcast of the watch's events (`com.cbishopvelti.beep.WATCH`), handed to Rust. |
 | `app/src/main/java/com/cbishopvelti/beep/BootReceiver.java` | After a reboot or an update of the app: Rust starts `WatchService` again if the direct link is on. |
 | `app/src/main/java/com/cbishopvelti/beep/WatchGatt.java` | The direct link's GATT callbacks (connection, MTU, services, descriptor, write done, data from the watch), each straight to Rust. |
@@ -171,13 +172,17 @@ deletes the watch hasn't done yet, and the watch answers `state`. Then:
   deletes every result the watch says was deleted on it, with its log. While a test is running on
   the watch that's all: the watch would answer any `get` with `busy`, and it says `state` again
   when the test ends, which starts the next round.
-- If there are deletes the watch hasn't done yet, and this `state` isn't the answer (within 10 s)
-  to a `beeptest-sync` that the phone sent in answer to the last `state` with all of them, that
-  sync goes now, and the round waits for its answer. The phone can't tell an answer from a `state`
-  the watch sent by itself, and a sync sent while no watch was connected was dropped (Gadgetbridge
-  drops what it can't deliver); the watch is there now, so this one reaches it. So a delete made
-  while the watch was away goes to it as soon as it's back in touch, even with the app closed, and
-  only a history fetched after that (or the same `hist`) settles it.
+- If there are deletes the watch hasn't done yet, and this `state` isn't the answer to a
+  `beeptest-sync` that the phone sent in answer to a `state` with all of them, that sync goes now,
+  with an `n` of its own, and the round waits for its answer, which echoes the `n`. A `state` the
+  watch sent by itself (its `n` is `""`) says nothing about the deletes, and a sync sent while no
+  watch was connected was dropped (Gadgetbridge drops what it can't deliver); the watch is there
+  now, so this one reaches it, and if the link drops again first, the next `state` has it sent
+  again. So a delete made while the watch was away goes to it as soon as it's back in touch, even
+  with the app closed, and only a history fetched after the answer (or the same `hist`) settles
+  it. The answer to any of the last 8 such syncs counts (one can be on its way while the next
+  goes). A watch app from before `n` sends `state` without one: then the first `state` within
+  10 s of such a sync is taken as its answer.
 - If the watch's history isn't the one the phone last fetched whole (`hist`, its length and CRC),
   it's fetched again (`beeptest-get` `beeptest.json`), and taken in only when it arrived whole and
   its CRC matches: new results are added, known ones updated, and results the watch no longer
@@ -257,8 +262,14 @@ connection at a time, so Gadgetbridge has to let go of it first (disconnect it t
   came on, a scan filtered by the watch's name (so it runs with the screen off) looks for it
   beside the waiting connection, and once it sees the watch the connection is made again. A
   connection still waiting after 5 minutes is made again the same way, looking for the watch too.
-  On Android 10 and 11 that scan may get nothing from the background until the app is opened
-  (location from the background).
+  On Android 10 and 11, with location allowed only while the app is in use (the manifest doesn't
+  ask for it in the background), a scan started from the background (after a reboot, from
+  `BootReceiver`, or the 5-minute retry with the app closed) gets nothing for as long as it runs,
+  so opening the app starts it again, with the connection (`ble::in_front`, from `ui_loop`'s
+  `resumed`); started then, it goes on getting results after the app is closed. Until the app is
+  opened, the link waits. Android 11 and earlier also give the scan nothing while the phone's
+  Location is off: the link then says so ("Turn on Location to find it", on Settings and Watch)
+  rather than "Looking for it", and goes back to that within 20 s of Location coming on.
 - **While the app is closed**, `WatchService` (a `connectedDevice` foreground service, started by
   the app and by `BootReceiver` after a reboot or an update) keeps the app running with a quiet
   "Watch link on" notification in its own channel, as Gadgetbridge's own service does.
@@ -327,10 +338,17 @@ change on one side that the other doesn't expect fails a test:
   writes it again, and then the watch's `tests/fixtures.test.js` checks the watch reads every line.
 - `watch-lines.txt`: what the watch printed for a scripted exchange, written by the watch's tests
   (`BEEP_BLESS=1 node tests/run.js tests/fixtures.test.js` at the repo root). `tests/fixtures.rs`
-  feeds it through `link.rs` and the sync engine and checks the results and logs it leaves.
+  feeds it through `link.rs` and the sync engine and checks the results and logs it leaves (one of
+  them on speed progression 1, as an engine with the Speeds setting writes it). The exchange's
+  `beeptest-sync` carries the `n` the phone's engine gives its sync at the time the test runs it
+  (`N` on both sides).
 - `beeplog/`: logs, and the TCX, CSV and result text `beeplog.js` makes of them
   (`node tests/fixtures/beeplog/make.js` makes them again after a change to `beeplog.js`), which
   `tests/beeplog.rs` compares the port with, byte for byte.
+- `tables.json`: `lib.js`'s `position` and `result` at every shuttle of each course and speed
+  progression, also written by `make.js` (after a change to `lib.js`'s tables), which
+  `tests/tables.rs` compares `src/tables.rs` with. GitHub runs `make.js` on every pull request and
+  fails when what it writes isn't what's checked in.
 
 ## What has been tested
 

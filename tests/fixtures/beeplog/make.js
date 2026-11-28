@@ -5,9 +5,14 @@
    log's resultText and fileBase, and the error beeplog.js throws where it
    throws (then there's no file for it).
 
+   It also writes tests/fixtures/tables.json, lib.js's tables (position
+   and result) over every shuttle of each course and speed progression
+   (android/tests/tables.rs holds src/tables.rs to it).
+
    Run: node tests/fixtures/beeplog/make.js
-   Run it again after a change to beeplog.js, then the phone app's tests
-   (cd android && cargo test --test beeplog): the port must keep up. */
+   Run it again after a change to beeplog.js or lib.js's tables, then the
+   phone app's tests (cd android && cargo test --test beeplog --test
+   tables): the port must keep up. */
 const fs = require("fs");
 const path = require("path");
 const BeepLog = require("../../../beeplog.js");
@@ -15,7 +20,7 @@ const BeepLog = require("../../../beeplog.js");
 const DIR = __dirname;
 const lib = fs.readFileSync(path.join(DIR, "../../../lib.js"), "utf8");
 const T = new Function(lib.slice(lib.indexOf("/*TABLES_START*/"), lib.indexOf("/*TABLES_END*/")) +
-  "return { position: position, result: result };")();
+  "return { position: position, result: result, PROGS: typeof PROGS == \"undefined\" ? undefined : PROGS };")();
 
 // The same numbers every run (mulberry32).
 function rng(seed) {
@@ -168,3 +173,28 @@ for (const name of Object.keys(LOGS)) {
 }
 fs.writeFileSync(path.join(DIR, "expected.json"), JSON.stringify(expected, null, 1) + "\n");
 console.log(`wrote ${Object.keys(LOGS).length} logs and what beeplog.js makes of them in ${path.relative(process.cwd(), DIR) || "."}`);
+
+/* lib.js's tables: for each course and speed progression (only the
+   standard one, 0, with an engine from before the Speeds setting), the
+   position at the start of every shuttle and past the end, and the result
+   there. A row is [t, level, shuttle, total, shuttleStart, nextAt, done,
+   result level, result shuttle]. */
+const tables = [];
+for (const m of [20, 15]) {
+  const progs = T.PROGS ? T.PROGS.map((_, i) => i) : [0];
+  for (const prog of progs) {
+    const rows = [];
+    const row = t => {
+      const p = T.position(m, t, prog), r = T.result(m, p, prog);
+      rows.push([t, p.level, p.shuttle, p.total, p.shuttleStart, p.nextAt, p.done ? 1 : 0, r.l, r.s]);
+      return p;
+    };
+    for (let t = 0, p; !(p = row(t)).done; t = p.nextAt);
+    row(1e9);
+    tables.push({ m: m, p: prog, rows: rows });
+  }
+}
+fs.writeFileSync(path.join(DIR, "../tables.json"),
+  "[\n" + tables.map(g => JSON.stringify({ m: g.m, p: g.p, rows: [] }).replace("[]}", "[\n" +
+    g.rows.map(r => JSON.stringify(r)).join(",\n") + "\n]}")).join(",\n") + "\n]\n");
+console.log(`wrote ${tables.length} tables (course and progression) in ${path.relative(process.cwd(), path.join(DIR, ".."))}/tables.json`);

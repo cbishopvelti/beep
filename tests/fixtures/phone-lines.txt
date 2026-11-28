@@ -1,5 +1,5 @@
 GB({"t":"beeptest-sync"})
-GB({"t":"beeptest-sync","del":["beeptest.1781172000.csv","beeptest.1781085600.csv"]})
+GB({"t":"beeptest-sync","del":["beeptest.1781172000.csv","beeptest.1781085600.csv"],"n":"1781400000050"})
 GB({"t":"beeptest-get","f":"beeptest.json","at":0})
 GB({"t":"beeptest-get","f":"beeptest.1781344800.csv","at":0})
 GB({"t":"beeptest-get","f":"beeptest.1781258400.csv","at":2000})

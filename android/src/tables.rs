@@ -8,7 +8,9 @@
 //! The phone uses them to compare results ("best", the progress chart) and
 //! for the demo data. They must give what `lib.js` gives for the same
 //! numbers: the tests check them against values worked out with node from
-//! it. A watch app from before the Speeds setting has only the standard
+//! it (here, and every shuttle in `tests/tables.rs`, from
+//! `tests/fixtures/tables.json`, which `make.js` writes from `lib.js` and
+//! GitHub checks is up to date). A watch app from before the Speeds setting has only the standard
 //! progression, 0, which is what an entry without `p` ran, and every
 //! function here gives what that `lib.js` gave for it.
 

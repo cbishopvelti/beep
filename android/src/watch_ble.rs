@@ -161,6 +161,11 @@ pub enum Status {
     /// Waiting for the watch: out of range, off, or held by Gadgetbridge
     /// (Android keeps trying until it shows up).
     Connecting,
+    /// Waiting for the watch, which has to be found by a scan first
+    /// ([`Reach::DeviceAndScan`]), with the phone's Location off: Android 11
+    /// and earlier give the scan nothing then, so it isn't found until
+    /// Location is on.
+    LocationOff,
     /// Connected, setting up the console.
     SettingUp,
     Connected,
@@ -194,6 +199,7 @@ impl Status {
             Status::BluetoothOff => "Bluetooth is off",
             Status::NoWatch => "No watch picked",
             Status::Connecting => "Looking for it...",
+            Status::LocationOff => "Turn on Location to find it",
             Status::SettingUp => "Connecting...",
             Status::Connected => "Connected",
         }
@@ -213,6 +219,10 @@ impl Status {
             Status::Connecting => format!(
                 "Looking for {name}: the phone connects once it's near and no other phone \
                  holds it"
+            ),
+            Status::LocationOff => format!(
+                "Looking for {name}, but the phone's Location is off: turn it on so the phone \
+                 can find the watch"
             ),
             Status::SettingUp => format!("Connecting to {name}..."),
             Status::Connected => format!("Connected directly to {name}"),
@@ -253,6 +263,17 @@ pub fn reach(sdk: i32, address: &str, seen: bool) -> Reach {
         Reach::Device
     } else {
         Reach::DeviceAndScan
+    }
+}
+
+/// The status while waiting for the watch, reached as `reach`, with the
+/// phone's Location off or not ([`Status::LocationOff`] only matters when
+/// a scan has to find the watch).
+pub fn waiting(reach: Reach, location_off: bool) -> Status {
+    if reach == Reach::DeviceAndScan && location_off {
+        Status::LocationOff
+    } else {
+        Status::Connecting
     }
 }
 
@@ -732,6 +753,7 @@ mod tests {
             Status::BluetoothOff,
             Status::NoWatch,
             Status::Connecting,
+            Status::LocationOff,
             Status::SettingUp,
             Status::Connected,
         ] {
@@ -741,6 +763,23 @@ mod tests {
         assert_eq!(
             Status::Connected.sentence("Bangle.js 1a2b"),
             "Connected directly to Bangle.js 1a2b"
+        );
+    }
+
+    #[test]
+    fn a_scan_with_location_off_says_so() {
+        assert_eq!(waiting(Reach::DeviceAndScan, true), Status::LocationOff);
+        assert_eq!(waiting(Reach::DeviceAndScan, false), Status::Connecting);
+        // No scan needed: Location doesn't matter.
+        assert_eq!(waiting(Reach::Device, true), Status::Connecting);
+        assert_eq!(
+            waiting(Reach::LeDevice { address_type: 1 }, true),
+            Status::Connecting
+        );
+        assert_eq!(
+            Status::LocationOff.sentence("Bangle.js 1a2b"),
+            "Looking for Bangle.js 1a2b, but the phone's Location is off: turn it on so the \
+             phone can find the watch"
         );
     }
 

@@ -23,17 +23,25 @@ const WATCH_LINES = path.join(__dirname, "fixtures", "watch-lines.txt");
 const PHONE_LINES = path.join(__dirname, "fixtures", "phone-lines.txt");
 const A = "beeptest.1781344800.csv", B = "beeptest.1781258400.csv", C = "beeptest.1781172000.csv";
 const D = "beeptest.1781085600.csv";
+/* The n of the phone's sync in the exchange: the phone's tests
+   (android/tests/fixtures.rs N) run the exchange's lines through its sync
+   engine at a set time, and this is the n it gives the sync it sends in
+   answer to the first state. */
+const N = "1781400000050";
 
 /* The watch for both: three past tests, newest first (A, a 20 m test of
-   400 s; B, 15 m, 150 s; C, 20 m, 30 s), and D deleted on the watch
-   earlier. Nothing in it depends on the watch's clock. */
+   400 s; B, 15 m, 150 s, on speed progression 1, as an engine with the
+   Speeds setting writes it; C, 20 m, 30 s), and D deleted on the watch
+   earlier. A and C are as an engine from before the Speeds setting writes
+   them (no p), so the phone reads both. Nothing in it depends on the
+   watch's clock. */
 function setUp(h) {
-  const hist = [makeLog(h, 1781344800, 20, 400), makeLog(h, 1781258400, 15, 150), makeLog(h, 1781172000, 20, 30)];
+  const hist = [makeLog(h, 1781344800, 20, 400), makeLog(h, 1781258400, 15, 150, 1), makeLog(h, 1781172000, 20, 30)];
   h.tx(`require("Storage").writeJSON("beeptest.json",${JSON.stringify(hist)});require("beeptest.sync").deleted(${JSON.stringify(D)})`);
 }
 
-/* The exchange: the phone connects (state, unasked); a sync deleting C
-   (state); the history fetched; A fetched whole; B from 0, then, after two
+/* The exchange: the phone connects (state, unasked); a sync deleting C,
+   with the n the phone gives it (state, echoing it); the history fetched; A fetched whole; B from 0, then, after two
    pieces, from 2000 (as after the link dropped: the new get replaces the
    old); the course, GPS and speeds set (state: with an engine that has no
    speed progressions, as before the Speeds setting, the watch ignores p
@@ -42,7 +50,7 @@ async function exchange(h) {
   setUp(h);
   await h.connect();
   await h.wait(3500);
-  await h.gb({ t: "beeptest-sync", del: [C] });
+  await h.gb({ t: "beeptest-sync", del: [C], n: N });
   let from = ours(h).length;
   await h.gb({ t: "beeptest-get", f: "beeptest.json", at: 0 });
   await untilEnd(h, "beeptest.json", from);
@@ -73,6 +81,7 @@ test("tests/fixtures/watch-lines.txt is what the watch prints for the scripted e
   if (h.eval('!!require("beeptest").PROGS'))
     assert.eq(states.map(e => e.p), ["0", "0", "1"], "the speeds, and the one set");
   else assert(states.every(e => !("p" in e)), "no speeds without progressions");
+  assert.eq(states.map(e => e.n), ["", N, ""], "only the sync's answer echoes its n");
   assert(lines.every(l => /^[\x20-\x7e]*$/.test(l)), "ASCII, one message a line");
 
   const text = lines.join("\n") + "\n";
@@ -112,6 +121,7 @@ test("tests/fixtures/phone-lines.txt: the watch reads every line the phone app b
     const got = ours(h).slice(from).map(e => e.event);
     const want = m.t == "beeptest-get" ? ["log", "logend", "busy"] : ["state"];
     assert(got.length && got.every(e => want.includes(e)), `${m.t} answered with ${want}: ${got}`);
+    if (m.t != "beeptest-get") assert.eq(ours(h).slice(from)[0].n, m.n || "", `${m.t}'s state echoes its n`);
   }
   assert(!h.log.some(l => /GB Unknown/.test(l)), "none reached Android Integration");
   assert.eq(h.errors, []);

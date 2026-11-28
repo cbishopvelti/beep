@@ -51,7 +51,7 @@ test("sync with nothing on the watch: state with every extra, as strings", async
   await h.connect();
   await h.gb({ t: "beeptest-sync" });
   const s = last(h);
-  const want = { event: "state", v: meta.version, m: "20", gps: "false", run: "", hist: "0:0", del: "" };
+  const want = { event: "state", v: meta.version, m: "20", gps: "false", run: "", hist: "0:0", del: "", n: "" };
   if (hasProgs(h)) want.p = "0";
   assert.eq(s, want);
   const m = h.sent().filter(m => m.t == "intent").pop();
@@ -154,6 +154,32 @@ test("sync: deletes the results the phone deleted, history and log, then state",
   assert.eq([last(h).event, last(h).hist, last(h).del], ["state", text.length + ":" + crc(text), ""],
     "a delete the phone asked for isn't reported back");
   assert.eq(h.eval('require("Storage").readJSON("beeptest.sync.json",1)'), null);
+});
+
+test("sync: its state echoes the sync's n, and no other state does", async h => {
+  threeResults(h);
+  await h.connect();
+  await h.wait(3500);
+  assert.eq(ours(h).map(e => [e.event, e.n]), [["state", ""]], "unasked, on connecting");
+  await h.gb({ t: "beeptest-sync", del: [C], n: "1781400000050" });
+  assert.eq([last(h).event, last(h).n], ["state", "1781400000050"], "the answer");
+  assert(!exists(h, C), "and the delete done");
+  await h.gb({ t: "beeptest-sync" });
+  assert.eq(last(h).n, "", "a sync without one");
+  await h.gb({ t: "beeptest-set", m: 15 });
+  assert.eq(last(h).n, "", "the answer to a set");
+  startAgo(h, 20, 10);
+  assert.eq([last(h).run != "", last(h).n], [true, ""], "a test starting");
+  h.tx(`${BT}.stop(false)`);
+  // Only digits, at most 20 of them, go back (the phone refuses a state
+  // with anything else)
+  for (const n of [1781400000050, "12a", "", "1".repeat(21), null, ["1"]]) {
+    await h.gb({ t: "beeptest-sync", n: n });
+    assert.eq(last(h).n, "", JSON.stringify(n));
+  }
+  await h.gb({ t: "beeptest-sync", n: "9".repeat(20) });
+  assert.eq(last(h).n, "9".repeat(20));
+  assert.eq(h.errors, []);
 });
 
 test("sync: never deletes the running test, nor anything but a log", async h => {

@@ -10,20 +10,20 @@ on:
     branches: [main]
     paths:
       - android/**
+      # The ports of beeplog.js and lib.js's tables (src/beeplog.rs,
+      # src/tables.rs) are tested against files made from them here, which
+      # test.yml checks are up to date: a change to either that matters
+      # changes them, and so runs this.
       - tests/fixtures/**
-      # The port of beeplog.js and lib.js's tables (src/beeplog.rs,
-      # src/tables.rs) is tested against them.
-      - beeplog.js
-      - lib.js
       - .github/workflows/android.yml
   pull_request:
     paths:
       - android/**
+      # The ports of beeplog.js and lib.js's tables (src/beeplog.rs,
+      # src/tables.rs) are tested against files made from them here, which
+      # test.yml checks are up to date: a change to either that matters
+      # changes them, and so runs this.
       - tests/fixtures/**
-      # The port of beeplog.js and lib.js's tables (src/beeplog.rs,
-      # src/tables.rs) is tested against them.
-      - beeplog.js
-      - lib.js
       - .github/workflows/android.yml
 permissions:
   contents: read

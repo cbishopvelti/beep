@@ -16,15 +16,18 @@ jobs:
           node-version: 22
       - run: sh tests/setup-emulator.sh
       - run: npm test
-      # The phone app's port of beeplog.js (android/src/beeplog.rs) is
-      # tested against files beeplog.js made: they must be what it makes
-      # now, or a change here leaves the port behind with every check green.
-      - name: The beeplog.js fixtures are up to date
+      # The phone app's ports of beeplog.js and lib.js's tables
+      # (android/src/beeplog.rs, src/tables.rs) are tested against files
+      # made from them (tests/fixtures/beeplog/, tests/fixtures/tables.json):
+      # they must be what they make now, or a change here leaves a port
+      # behind with every check green. A changed fixture runs the phone
+      # app's tests (android.yml), which then fail until the port keeps up.
+      - name: The beeplog.js and lib.js fixtures are up to date
         run: |
           node tests/fixtures/beeplog/make.js
-          git add -N tests/fixtures/beeplog
-          git diff --exit-code --stat tests/fixtures/beeplog || {
-            echo "::error::beeplog.js or lib.js changed: run node tests/fixtures/beeplog/make.js, then cd android && cargo test"
+          git add -N tests/fixtures/beeplog tests/fixtures/tables.json
+          git diff --exit-code --stat tests/fixtures/beeplog tests/fixtures/tables.json || {
+            echo "::error::beeplog.js or lib.js's tables changed: run node tests/fixtures/beeplog/make.js, commit what it writes, and port the change (cd android && cargo test --test beeplog --test tables)"
             exit 1
           }
       - run: npm run bundle

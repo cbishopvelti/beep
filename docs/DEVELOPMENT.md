@@ -45,7 +45,7 @@ from Bangle.js" for a printed line that starts with `{`
 
 | `t` | Fields | What the watch does |
 | --- | --- | --- |
-| `beeptest-sync` | `del`: log file names of results deleted on the phone (may be absent) | Deletes each named result (its history entry and its log; never the running test's), then answers `state`. |
+| `beeptest-sync` | `del`: log file names of results deleted on the phone (may be absent); `n`: a string of digits (at most 20) naming this sync (may be absent) | Deletes each named result (its history entry and its log; never the running test's), then answers `state`, echoing `n`. |
 | `beeptest-get` | `f`: file name, `at`: byte offset to start from (default 0) | Sends that file from `at` as `log` pieces, then `logend`. `f` is a log (`beeptest.<digits>.csv`, a StorageFile) or `beeptest.json` (the history). One transfer at a time: a new `get` replaces one in progress (which ends without a `logend`). While a test is running it answers `busy` instead, since reading storage must not delay the cues, and a test that starts during a transfer stops it with `busy` too. A file that isn't there (or any other name) answers `logend` with `len` `-1`. |
 | `beeptest-set` | `m`: 20 or 15, `gps`: true or false, `p`: the speed progression, a number that indexes the engine's `PROGS` (0, 1 or 2; each optional) | Saves them to `beeptest.settings.json` (a bad `m` is ignored, and so is a `p` that isn't a valid index, or any `p` when the engine has no `PROGS`), emits `Bangle.emit("beeptest", {type: "settings"})` so an open app shows them, then answers `state`. |
 
@@ -64,7 +64,7 @@ is sent when no phone is connected (`NRF.getSecurityStatus().connected`).
 
 | `event` | Extras | When |
 | --- | --- | --- |
-| `state` | `v` (the version installed, from `beeptest.info`), `m` (`"20"` or `"15"`), `gps` (`"true"` or `"false"`), `run` (the running test's log file name, or `""`), `hist` (`"<length>:<crc>"` of the history as the phone gets it, `"0:0"` when there's none), `del` (log file names of results deleted on the watch, comma-separated, newest last, at most 30; `""` when none), and `p` (the speed progression, `"0"`, `"1"` or `"2"`, read as the app reads it: 0 unless the setting is one of `PROGS`) only when the engine has speed progressions (`require("beeptest").PROGS`) | The answer to `beeptest-sync` and `beeptest-set`. Also sent unasked when a test starts, ends or is cancelled, when a result is deleted on the watch, when Course or GPS speed (or Speeds) is changed on the watch, 3 s after a phone connects (after Android Integration's own hello), and half a second after a `load()` that cut a transfer off (below). |
+| `state` | `v` (the version installed, from `beeptest.info`), `m` (`"20"` or `"15"`), `gps` (`"true"` or `"false"`), `run` (the running test's log file name, or `""`), `hist` (`"<length>:<crc>"` of the history as the phone gets it, `"0:0"` when there's none), `del` (log file names of results deleted on the watch, comma-separated, newest last, at most 30; `""` when none), `n` (the `n` of the `beeptest-sync` this answers; `""` in any other `state`, and for an `n` that isn't 1 to 20 digits), and `p` (the speed progression, `"0"`, `"1"` or `"2"`, read as the app reads it: 0 unless the setting is one of `PROGS`) only when the engine has speed progressions (`require("beeptest").PROGS`) | The answer to `beeptest-sync` and `beeptest-set`. Also sent unasked when a test starts, ends or is cancelled, when a result is deleted on the watch, when Course or GPS speed (or Speeds) is changed on the watch, 3 s after a phone connects (after Android Integration's own hello), and half a second after a `load()` that cut a transfer off (below). |
 | `log` | `f`, `at` (where this piece starts in the file), `crc` (`E.CRC32` of `d`), `d` (the piece: up to 1000 bytes of the file, as text) | A piece of the file asked for, in order, one per 50 ms timer tick so the watch stays responsive. |
 | `logend` | `f`, `len` (the file's length in bytes, or `-1` if it isn't there) | After the last piece. Also `-1` when the file being sent is deleted (on the watch, or by a sync). A transfer stops with nothing sent when the phone disconnects. |
 | `busy` | `f` | A `beeptest-get` while a test is running: nothing is sent; ask again after the next `state` (which comes when the test ends). |
@@ -105,13 +105,17 @@ starts the phone's next round, which asks for the rest from what it has.
 Without it, a sync with the phone app closed (nothing ticks there) would wait
 for the next test.
 
-The phone can't tell a `state` that answers its `beeptest-sync` from one the
-watch sent unasked, and a line sent while no watch is connected is dropped
-(Gadgetbridge drops what it can't deliver). So with deletes pending it
-answers a `state` with a `beeptest-sync` carrying them, and only the `state`
-that answers that one (within 10 s) can settle them: a history fetched then
-that doesn't list them, or the same `hist` for one the watch had already
-forgotten (whose log file `lib.js` keeps until a delete erases it).
+A line sent while no watch is connected is dropped (Gadgetbridge drops
+what it can't deliver), and a `state` the watch sends unasked (on
+connecting, a test ending) says nothing about the deletes. So with deletes
+pending the phone answers a `state` with a `beeptest-sync` carrying them and
+an `n` of its own, and only the `state` that echoes that `n` can settle
+them: a history fetched then that doesn't list them, or the same `hist` for
+one the watch had already forgotten (whose log file `lib.js` keeps until a
+delete erases it). Any other `state` (its `n` is `""`) has the sync sent
+again, with a new `n`. A watch app from before `n` sends `state` with no
+`n` at all: the phone then takes the first `state` within 10 s of such a
+sync as its answer.
 
 The phone's side (when it syncs, how it resumes a log from the size of what
 it has, what it checks) is in `android/README.md`.
@@ -125,6 +129,7 @@ doesn't expect fails a test:
 | `phone-lines.txt`: one of each line the phone sends, exactly as `android/src/link.rs` builds them | `android/tests/fixtures.rs`, which fails when it's out of date | `tests/fixtures.test.js`: the watch reads every line |
 | `watch-lines.txt`: what the watch prints for a scripted exchange, one message a line | `tests/fixtures.test.js`, which fails when the watch prints something else | `android/tests/fixtures.rs`: fed through the phone's link and sync engine, it must leave the results and logs the exchange carried |
 | `beeplog/`: logs (`<name>.log`) and what `beeplog.js` makes of them (TCX, TCX without low-confidence readings, CSV, and `expected.json`) | `node tests/fixtures/beeplog/make.js` | `android/tests/beeplog.rs`: the phone's port of `beeplog.js` must give the same, byte for byte |
+| `tables.json`: `lib.js`'s `position` and `result` at the start of every shuttle of each course and speed progression | `node tests/fixtures/beeplog/make.js` | `android/tests/tables.rs`: the phone's port of the tables (`src/tables.rs`) must give the same numbers |
 
 After a change that's meant, write the file again on the side that
 changed, then run the other side's tests:
@@ -136,16 +141,25 @@ BEEP_BLESS=1 node tests/run.js tests/fixtures.test.js
 # the phone changed a line it sends
 (cd android && BEEP_BLESS=1 cargo test --test fixtures)
 node tests/run.js tests/fixtures.test.js
-# beeplog.js changed
+# beeplog.js or lib.js's tables changed
 node tests/fixtures/beeplog/make.js
-(cd android && cargo test --test beeplog)
+(cd android && cargo test --test beeplog --test tables)
 ```
+
+GitHub runs `make.js` on every pull request and fails if what it writes
+isn't what's checked in, so a change to `beeplog.js` or the tables can't
+leave the phone's ports behind.
 
 The version in `watch-lines.txt`'s `state` lines is `metadata.json`'s, so
 a new watch version means writing it again too. So does installing speed
 progressions in the engine: its `state` lines then carry `p` (the exchange
 sets `p` 1, which an engine without them ignores). Both sides' fixture
-tests take either.
+tests take either. The exchange's history has one result (B) as an engine
+with speed progressions writes it (`p` 1 in its entry, and on its log's
+start line) and the others as one without them, so the phone reads both.
+Its `beeptest-sync` carries the `n` the phone gives the sync it sends in
+answer to the first `state` (`android/tests/fixtures.rs` `N`, from the
+time it runs the exchange at): change one and change the other.
 
 **Trying it by hand.** With the phone on adb and Gadgetbridge connected:
 

@@ -273,6 +273,80 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
     settings_card(app, ui, &watch);
 }
 
+/// A chip of a setting's row ([`choices`]).
+struct Choice {
+    text: String,
+    /// The watch's own.
+    on: bool,
+    /// Sent, and waiting for the watch: marked " …".
+    waiting: bool,
+}
+
+/// A setting's row: `label`, then a chip for each choice, beside the label
+/// on the right when they fit there (with room for one of them marked " …",
+/// so the row doesn't move when one is sent), else on their own line under
+/// it, wrapping if even that is too narrow (a small phone with large
+/// text). Returns which was tapped.
+fn choices(ui: &mut egui::Ui, label: &str, chips: &[Choice]) -> Option<usize> {
+    const TALL: f32 = 40.0;
+    const GAP: f32 = 6.0;
+    let text = |c: &Choice| {
+        if c.waiting {
+            format!("{} …", c.text)
+        } else {
+            c.text.clone()
+        }
+    };
+    let label_w = ui
+        .painter()
+        .layout_no_wrap(
+            label.to_owned(),
+            egui::TextStyle::Body.resolve(ui.style()),
+            egui::Color32::PLACEHOLDER,
+        )
+        .size()
+        .x;
+    let marked = chips
+        .iter()
+        .map(|c| chip::width(ui, &format!("{} …", c.text), TALL) - chip::width(ui, &c.text, TALL))
+        .fold(0.0, f32::max);
+    let chips_w: f32 = chips
+        .iter()
+        .map(|c| chip::width(ui, &c.text, TALL) + GAP)
+        .sum::<f32>()
+        - GAP
+        + marked;
+    let beside = label_w + ui.spacing().item_spacing.x + chips_w <= ui.available_width();
+    let mut tapped = None;
+    let mut add = |ui: &mut egui::Ui, i: usize, c: &Choice| {
+        if chip::choice(ui, &text(c), c.on, TALL).clicked() {
+            tapped = Some(i);
+        }
+    };
+    if beside {
+        ui.horizontal(|ui| {
+            ui.set_min_height(44.0);
+            ui.label(label);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = GAP;
+                // Right to left: the last first.
+                for (i, c) in chips.iter().enumerate().rev() {
+                    add(ui, i, c);
+                }
+            });
+        });
+    } else {
+        ui.label(label);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
+            for (i, c) in chips.iter().enumerate() {
+                add(ui, i, c);
+            }
+        });
+    }
+    tapped
+}
+
 /// Course, GPS speed and (when the watch has the setting) Speeds, as the
 /// watch has them, and what was sent.
 fn settings_card(app: &mut App, ui: &mut egui::Ui, watch: &WatchState) {
@@ -282,46 +356,29 @@ fn settings_card(app: &mut App, ui: &mut egui::Ui, watch: &WatchState) {
     let mut p = None;
     card(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
-        ui.horizontal(|ui| {
-            ui.set_min_height(44.0);
-            ui.label("Course");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                // Right to left: 15 m first.
-                for course in [15, 20] {
-                    let waiting = sent.as_ref().is_some_and(|s| s.m == Some(course));
-                    let text = if waiting {
-                        format!("{course} m …")
-                    } else {
-                        format!("{course} m")
-                    };
-                    if chip::choice(ui, &text, watch.m == Some(course), 40.0).clicked() {
-                        m = Some(course);
-                    }
-                }
-            });
-        });
+        let courses: Vec<Choice> = tables::COURSES
+            .iter()
+            .map(|&course| Choice {
+                text: format!("{course} m"),
+                on: watch.m == Some(course),
+                waiting: sent.as_ref().is_some_and(|s| s.m == Some(course)),
+            })
+            .collect();
+        if let Some(i) = choices(ui, "Course", &courses) {
+            m = Some(tables::COURSES[i]);
+        }
         // Only a watch app with the Speeds setting says which it has.
         if let Some(now) = watch.p {
-            ui.horizontal(|ui| {
-                ui.set_min_height(44.0);
-                ui.label("Speeds");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    // Right to left: the last first.
-                    for choice in (0..tables::PROGRESSIONS.len() as u32).rev() {
-                        let waiting = sent.as_ref().is_some_and(|s| s.p == Some(choice));
-                        let text = if waiting {
-                            format!("{} …", speeds_choice(choice))
-                        } else {
-                            speeds_choice(choice)
-                        };
-                        if chip::choice(ui, &text, now == choice, 40.0).clicked() {
-                            p = Some(choice);
-                        }
-                    }
-                });
-            });
+            let speeds: Vec<Choice> = (0..tables::PROGRESSIONS.len() as u32)
+                .map(|choice| Choice {
+                    text: speeds_choice(choice),
+                    on: now == choice,
+                    waiting: sent.as_ref().is_some_and(|s| s.p == Some(choice)),
+                })
+                .collect();
+            if let Some(i) = choices(ui, "Speeds", &speeds) {
+                p = Some(i as u32);
+            }
             ui.label(
                 RichText::new(format!(
                     "km/h at levels 1 and 2, then 0.5 more a level: {} now. 8, 9 is the \
@@ -554,6 +611,9 @@ mod tests {
             (Dot::Green, "Connected directly".into())
         );
         assert_eq!(direct(Status::Connecting).0, Dot::Amber);
+        // Location off: something to do on the phone, as Bluetooth off.
+        assert_eq!(direct(Status::LocationOff).0, Dot::Red);
+        assert_eq!(direct(Status::LocationOff).1, "Turn on Location to find it");
         assert_eq!(
             direct(Status::BluetoothOff),
             (Dot::Red, "Bluetooth is off".into())
