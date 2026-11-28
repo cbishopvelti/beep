@@ -175,6 +175,17 @@ test("running screen: level, shuttle, HR, km/h, distance; GPS only when on", asy
   assert(drawn.includes("GPS 8.4 km/h"), "GPS speed: " + drawn);
 });
 
+test("running screen: a shuttle bar and a level bar, in two colours", async h => {
+  startAgo(h, 20, timeAt(h, 20, 7, 4) + 2); // 2 s into shuttle 5 of 10 at level 7
+  await h.load("beeptest.app.js");
+  h.tx("BARS=[];bar=function(x1,y1,x2,y2,f,c){BARS.push([f,c])};drawRun()");
+  const [sh, lv] = h.eval("BARS");
+  const dur = h.eval(`${BT}.shuttleTime(20,7)`);
+  assert.near(sh[0], 2 / dur, 0.02, "shuttle bar");
+  assert.near(lv[0], (4 + 2 / dur) / 10, 0.02, "level bar");
+  assert(sh[1] != lv[1], "different colours");
+});
+
 test("result screen after a test, tap goes back to the start screen", async h => {
   startAgo(h, 15, timeAt(h, 15, 4, 6) + 1);
   await open(h);

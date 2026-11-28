@@ -6,7 +6,7 @@ service.
 
 Tap the screen to start (the button never starts a test). The watch buzzes once at
 the end of each shuttle and three times at each new level, and shows your level,
-shuttle, a countdown bar to the next buzz, your heart rate and the target speed in
+shuttle, a green bar for the shuttle (to the next buzz) and a blue one for the level, your heart rate and the target speed in
 km/h side by side, and the distance so far.
 Press the button for a menu: before a test it has the course, GPS speed and past
 results; during a test **Back to test**, **Stop & save** and **Cancel test**.

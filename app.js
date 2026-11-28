@@ -115,28 +115,39 @@ function showRun() {
   rate();
 }
 
+// An outlined progress bar, filled to f (0..1) in colour c
+function bar(x1, y1, x2, y2, f, c) {
+  g.setColor(g.theme.fg).drawRect(x1, y1, x2, y2);
+  if (f > 0) g.setColor(c).fillRect(x1 + 2, y1 + 2, x1 + 2 + (x2 - x1 - 4) * f, y2 - 2);
+  g.setColor(g.theme.fg);
+}
+
 function drawRun() {
   var s = bt.status();
   if (!s) return;
   var R = Bangle.appRect, cx = R.x + R.w / 2;
-  var f = 1 - s.left / s.dur;
+  var f = 1 - s.left / s.dur; // through this shuttle
   if (f < 0) f = 0;
   if (f > 1) f = 1;
+  var lf = (s.shuttle + f) / s.shuttles; // through this level (its shuttles all take as long)
+  var dark = g.theme.dark, cS = "#0f0", cL = dark ? "#0ff" : "#00f";
   g.reset().clearRect(R);
-  g.setFontAlign(0, -1).setFont("6x8").drawString("LEVEL", R.x + R.w / 4, R.y + 2).drawString("SHUTTLE", R.x + 3 * R.w / 4, R.y + 2);
+  g.setFontAlign(0, -1).setFont("6x8").setColor(cL).drawString("LEVEL", R.x + R.w / 4, R.y + 2);
+  g.setColor(dark ? cS : "#080").drawString("SHUTTLE", R.x + 3 * R.w / 4, R.y + 2).setColor(g.theme.fg);
   g.setFont("Vector", 44).drawString(s.level, R.x + R.w / 4, R.y + 12);
   g.setFont("Vector", s.shuttles > 9 ? 26 : 30).drawString((s.shuttle + 1) + "/" + s.shuttles, R.x + 3 * R.w / 4, R.y + 18);
-  var by = R.y + 60;
-  g.drawRect(R.x + 4, by, R.x2 - 4, by + 14);
-  g.fillRect(R.x + 6, by + 2, R.x + 6 + (R.w - 12) * f, by + 12);
-  g.setFont("6x8").setFontAlign(0, -1).drawString(s.m + "m  " + Math.max(0, s.left).toFixed(1) + "s", cx, by + 17);
+  // two bars: this shuttle (thick, to the next buzz), then this level
+  var by = R.y + 58;
+  bar(R.x + 4, by, R.x2 - 4, by + 10, f, cS);
+  bar(R.x + 4, by + 13, R.x2 - 4, by + 19, lf, cL);
+  g.setFont("6x8").setFontAlign(0, -1).drawString(s.m + "m  " + Math.max(0, s.left).toFixed(1) + "s", cx, by + 22);
   // heart rate and target speed side by side, the same size
-  var ry = by + 30;
+  var ry = by + 32;
   heart(R.x + 14, ry + 10, 8);
   g.setFont("Vector", 26).setFontAlign(-1, -1).drawString(s.bpm > 0 ? Math.round(s.bpm) : "--", R.x + 28, ry);
   g.setFontAlign(1, -1).drawString(s.speed.toFixed(1), R.x2 - 30, ry);
   g.setFont("6x8").setFontAlign(1, 1).drawString("km/h", R.x2 - 4, ry + 22);
-  g.setFont("Vector", 20).setFontAlign(0, -1).drawString(s.dist + "m", cx, ry + 30);
+  g.setFont("Vector", 20).setFontAlign(0, -1).drawString(s.dist + "m", cx, ry + 28);
   g.setFont("6x8").setFontAlign(-1, 1).drawString(fmtTime(s.t), R.x + 4, R.y2 - 2);
   if (s.gps) g.setFontAlign(1, 1).drawString("GPS " + (isNaN(s.gpsSpeed) ? "--" : s.gpsSpeed.toFixed(1)) + " km/h", R.x2 - 4, R.y2 - 2);
 }
