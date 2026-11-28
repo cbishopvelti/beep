@@ -2,8 +2,8 @@
   "id": "beeptest",
   "name": "Beep Test",
   "shortName": "Beep Test",
-  "version": "0.03",
-  "description": "Multistage fitness (beep / beep) test on a 20m or 15m course, with vibration cues, a clock widget while it runs, and heart rate logging you can export as TCX or CSV.",
+  "version": "0.05",
+  "description": "Multistage fitness (beep / beep) test on a 20m or 15m course, with vibration cues, a clock widget while it runs, and heart rate logging you can export as TCX or CSV, or sync with the Beep Test Android app.",
   "icon": "app.png",
   "screenshots": [
     { "url": "screenshots/1-start.png" },
@@ -25,12 +25,15 @@
     { "name": "beeptest.img", "url": "app-icon.js", "evaluate": true },
     { "name": "beeptest", "url": "lib.js" },
     { "name": "beeptest.boot.js", "url": "boot.js" },
+    { "name": "beeptest.sync", "url": "sync.js" },
     { "name": "beeptest.wid.js", "url": "widget.js" }
   ],
   "data": [
     { "name": "beeptest.json" },
     { "name": "beeptest.settings.json" },
     { "name": "beeptest.state.json" },
+    { "name": "beeptest.sync.json" },
+    { "name": "beeptest.xfer" },
     { "wildcard": "beeptest.*.csv", "storageFile": true }
   ]
 }

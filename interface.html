@@ -88,11 +88,15 @@ function download(file, kind) {
   });
 }
 
+// Deletes a test's log and its result, and records the deletion
+// (beeptest.sync.json) so the phone app deletes it too
 function erase(file) {
   if (!confirm("Delete " + file + " from the watch?")) return;
   Util.showModal("Deleting...");
   Util.eraseStorageFile(file, function() {
-    Puck.eval('(function(){var s=require("Storage");var h=s.readJSON("beeptest.json",1)||[];s.writeJSON("beeptest.json",h.filter(function(x){return x.f!=' + JSON.stringify(file) + '}));return 1})()', function() {
+    var f = JSON.stringify(file);
+    Puck.eval('(function(){var s=require("Storage");var h=s.readJSON("beeptest.json",1)||[];s.writeJSON("beeptest.json",h.filter(function(x){return x.f!=' + f + '}));' +
+      'if(s.read("beeptest.sync")!==undefined)require("beeptest.sync").deleted(' + f + ');return 1})()', function() {
       Util.hideModal();
       load();
     });

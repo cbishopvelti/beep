@@ -1,0 +1,115 @@
+name: Android app
+# The phone app in android/: the desktop checks (format, clippy, the tests,
+# which also read tests/fixtures/), then the APK, which is built here since
+# the Android SDK and NDK only come from Google's servers. Every run keeps
+# the APK as the beep-android-apk artifact. On main it's also the asset of
+# the rolling android-latest prerelease, so the newest build is always at
+# https://github.com/cbishopvelti/beep/releases/download/android-latest/beep-android.apk
+on:
+  push:
+    branches: [main]
+    paths:
+      - android/**
+      # The ports of beeplog.js and lib.js's tables (src/beeplog.rs,
+      # src/tables.rs) are tested against files made from them here, which
+      # test.yml checks are up to date: a change to either that matters
+      # changes them, and so runs this.
+      - tests/fixtures/**
+      - .github/workflows/android.yml
+  pull_request:
+    paths:
+      - android/**
+      # The ports of beeplog.js and lib.js's tables (src/beeplog.rs,
+      # src/tables.rs) are tested against files made from them here, which
+      # test.yml checks are up to date: a change to either that matters
+      # changes them, and so runs this.
+      - tests/fixtures/**
+      - .github/workflows/android.yml
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: android
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+  apk:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: android
+          key: apk
+      - name: Install cargo-ndk
+        run: cargo ndk --version || cargo install cargo-ndk --locked --version "^4"
+      - name: Install the NDK and platform app/build.gradle.kts names
+        run: |
+          ndk=$(sed -n 's/^ *ndkVersion = "\(.*\)"/\1/p' app/build.gradle.kts)
+          sdk=$(sed -n 's/^ *compileSdk = \([0-9]*\)$/\1/p' app/build.gradle.kts)
+          echo "NDK $ndk, android-$sdk"
+          test -n "$ndk" && test -n "$sdk"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" "platforms;android-$sdk" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ndk" >> "$GITHUB_ENV"
+      - run: ./gradlew assembleDebug --no-daemon
+      - run: cp app/build/outputs/apk/debug/app-debug.apk beep-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beep-android-apk
+          path: android/beep-android.apk
+          if-no-files-found: error
+  publish:
+    # Moves the android-latest tag to this commit and replaces the APK on
+    # its prerelease (made the first time).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: android-latest
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: beep-android-apk
+      - name: Publish the android-latest prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          notes="Beep Test for Android, built from main at ${GITHUB_SHA::7}. Replaced by each push to main that changes the app: install beep-android.apk on the phone (it installs over an earlier one)."
+          if gh release view android-latest > /dev/null 2>&1; then
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/android-latest" -f sha="$GITHUB_SHA" -F force=true > /dev/null
+            gh release upload android-latest beep-android.apk --clobber
+            gh release edit android-latest --prerelease --notes "$notes"
+          else
+            gh release create android-latest beep-android.apk --prerelease --target "$GITHUB_SHA" \
+              --title "Beep Test for Android (latest main)" --notes "$notes"
+          fi

@@ -125,6 +125,11 @@ function onSetTime(t) {
 
 function emit(type, data) { Bangle.emit("beeptest", { type: type, data: data }); }
 
+// Tell the Beep Test phone app, if it's connected (sync.js)
+function tellPhone() {
+  if (NRF.getSecurityStatus().connected) require("beeptest.sync").state();
+}
+
 function updateWidget() {
   if (global.WIDGETS && WIDGETS.beeptest) WIDGETS.beeptest.update();
 }
@@ -192,6 +197,7 @@ exports.start = function (m, opts) {
   cueLevel();
   run();
   logTick();
+  tellPhone();
 };
 
 // Resume a test after an app change (called from the boot file)
@@ -253,6 +259,7 @@ function stop(completed, at) {
   cue(2, 350);
   updateWidget();
   emit("done", res);
+  tellPhone();
   return res;
 }
 exports.stop = stop;
@@ -267,6 +274,7 @@ exports.cancel = function () {
   st = undefined;
   updateWidget();
   emit("cancel");
+  tellPhone();
 };
 
 exports.active = function () { return !!st; };

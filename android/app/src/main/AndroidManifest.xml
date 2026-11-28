@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The direct link to the watch, without Gadgetbridge (an option in
+         Settings, off by default): finding it ("Nearby devices" from
+         Android 12; before that, scanning needs location, so it's asked
+         for on Android 11 and earlier only), connecting, and a foreground
+         service with its notification that keeps the connection while the
+         app is closed, started again after a reboot. -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Gadgetbridge sends the watch's lines; let the app see it on Android 11+. -->
+    <queries>
+        <package android:name="com.espruino.gadgetbridge.banglejs" />
+        <package android:name="nodomain.freeyourgadget.gadgetbridge" />
+    </queries>
+
+    <!-- enableOnBackInvokedCallback: targeting Android 16 turns on predictive
+         back, which stops the back key reaching a NativeActivity as a key
+         press; the app handles back itself (a result goes back to Results),
+         so it stays as it was. -->
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="true"
+        android:enableOnBackInvokedCallback="false">
+        <!-- The UI is Rust (eframe); the Java in src/main/java only forwards
+             what Android delivers by class name to Rust. MainActivity is
+             NativeActivity, ending the process when it's destroyed (the
+             Rust side can't stop, nor start again in the same process).
+             configChanges lists every change the app takes as it is, so
+             that none of them destroys the activity: the window just
+             changes size or look. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|touchscreen|uiMode|density|fontScale|fontWeightAdjustment|locale|layoutDirection|colorMode"
+            android:windowSoftInputMode="adjustResize|stateHidden">
+            <meta-data android:name="android.app.lib_name" android:value="beep_android" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The watch's events, as Gadgetbridge's broadcast (the watch's
+             intent message names this package and action). Exported so
+             Gadgetbridge can reach it, so any app can send it: Rust checks
+             everything in it before using it (src/link.rs). -->
+        <receiver android:name=".WatchReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="com.cbishopvelti.beep.WATCH" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Holds the direct link to the watch, when that's on. -->
+        <service
+            android:name=".WatchService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- Starts WatchService again after a reboot or an app update, when
+             the direct link is on. -->
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Share TCX and Share CSV: a content:// uri for a file in exports/
+             in the files directory, readable by the app it's shared with. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.cbishopvelti.beep.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

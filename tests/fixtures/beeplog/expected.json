@@ -1,0 +1,136 @@
+{
+ "nogps": {
+  "resultText": "20m beep test result 4.1, 480 m",
+  "fileBase": "beeptest-20m-2026-06-13-11-00",
+  "tcx": "nogps.tcx",
+  "tcx50": "nogps.min50.tcx",
+  "csv": "nogps.csv"
+ },
+ "gps": {
+  "resultText": "15m beep test result 3.1, 300 m",
+  "fileBase": "beeptest-15m-2026-06-12-10-00",
+  "tcx": "gps.tcx",
+  "tcx50": "gps.min50.tcx",
+  "csv": "gps.csv"
+ },
+ "clock": {
+  "resultText": "20m beep test result 2.3, 200 m",
+  "fileBase": "beeptest-20m-2026-06-11-06-00",
+  "tcx": "clock.tcx",
+  "tcx50": "clock.min50.tcx",
+  "csv": "clock.csv"
+ },
+ "after-end": {
+  "resultText": "20m beep test result 1.7, 140 m",
+  "fileBase": "beeptest-20m-2026-06-10-11-00",
+  "tcx": "after-end.tcx",
+  "tcx50": "after-end.min50.tcx",
+  "csv": "after-end.csv"
+ },
+ "speeds": {
+  "resultText": "20m beep test result 2.4, 220 m",
+  "fileBase": "beeptest-20m-2026-06-14-11-00",
+  "tcx": "speeds.tcx",
+  "tcx50": "speeds.min50.tcx",
+  "csv": "speeds.csv"
+ },
+ "unfinished": {
+  "resultText": "15m beep test (incomplete log)",
+  "fileBase": "beeptest-15m-2026-06-09-12-13",
+  "tcx": "unfinished.tcx",
+  "tcx50": "unfinished.min50.tcx",
+  "csv": "unfinished.csv"
+ },
+ "lowconf": {
+  "resultText": "20m beep test result 2.2, 180 m",
+  "fileBase": "beeptest-20m-2026-06-08-06-26",
+  "tcx": "lowconf.tcx",
+  "tcx50": "lowconf.min50.tcx",
+  "csv": "lowconf.csv"
+ },
+ "empty": {
+  "resultText": "20m beep test (incomplete log)",
+  "fileBase": "beeptest-20m-2026-06-13-11-00",
+  "tcx": {
+   "error": "Log has no samples"
+  },
+  "tcx50": {
+   "error": "Log has no samples"
+  },
+  "csv": "empty.csv"
+ },
+ "odd": {
+  "resultText": "15m beep test result 3.0, 8 m",
+  "fileBase": "beeptest-15m-2026-06-13-15-30",
+  "tcx": "odd.tcx",
+  "tcx50": "odd.min50.tcx",
+  "csv": "odd.csv"
+ },
+ "invalid-start": {
+  "resultText": "20m beep test result 0.0, 0 m",
+  "fileBase": {
+   "error": "Invalid time value"
+  },
+  "tcx": {
+   "error": "Invalid time value"
+  },
+  "tcx50": {
+   "error": "Invalid time value"
+  },
+  "csv": {
+   "error": "Invalid time value"
+  }
+ },
+ "too-late": {
+  "resultText": "20m beep test (incomplete log)",
+  "fileBase": "beeptest-20m-+275760-09-12-23",
+  "tcx": {
+   "error": "Invalid time value"
+  },
+  "tcx50": {
+   "error": "Invalid time value"
+  },
+  "csv": {
+   "error": "Invalid time value"
+  }
+ },
+ "no-start": {
+  "resultText": "20m beep test (incomplete log)",
+  "fileBase": "beeptest-20m-1970-01-01-00-00",
+  "tcx": "no-start.tcx",
+  "tcx50": "no-start.min50.tcx",
+  "csv": "no-start.csv"
+ },
+ "far-future": {
+  "resultText": "20m beep test (incomplete log)",
+  "fileBase": "beeptest-20m-+010000-01-01-00",
+  "tcx": "far-future.tcx",
+  "tcx50": "far-future.min50.tcx",
+  "csv": "far-future.csv"
+ },
+ "before-1970": {
+  "resultText": "20m beep test (incomplete log)",
+  "fileBase": "beeptest-20m--000002-12-31-23",
+  "tcx": "before-1970.tcx",
+  "tcx50": "before-1970.min50.tcx",
+  "csv": "before-1970.csv"
+ },
+ "nan-end": {
+  "resultText": "20m beep test result 1.2, 3 m",
+  "fileBase": "beeptest-20m-2026-06-13-10-00",
+  "tcx": {
+   "error": "Log has no samples"
+  },
+  "tcx50": {
+   "error": "Log has no samples"
+  },
+  "csv": "nan-end.csv"
+ },
+ "numbers": {
+  "resultText": "15m beep test (incomplete log)",
+  "fileBase": "beeptest-15m-2026-06-13-15-30",
+  "tcx": "numbers.tcx",
+  "tcx50": "numbers.min50.tcx",
+  "csv": "numbers.csv"
+ }
+}

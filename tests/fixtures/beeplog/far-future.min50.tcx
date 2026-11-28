@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">
+ <Activities>
+  <Activity Sport="Running">
+   <Id>9999-12-31T23:59:59Z</Id>
+   <Lap StartTime="9999-12-31T23:59:59Z">
+    <TotalTimeSeconds>2.0</TotalTimeSeconds>
+    <DistanceMeters>5.0</DistanceMeters>
+    <MaximumSpeed>2.50</MaximumSpeed>
+    <Calories>0</Calories>
+    <AverageHeartRateBpm><Value>100</Value></AverageHeartRateBpm>
+    <MaximumHeartRateBpm><Value>100</Value></MaximumHeartRateBpm>
+    <Intensity>Active</Intensity>
+    <TriggerMethod>Distance</TriggerMethod>
+    <Track>
+     <Trackpoint>
+      <Time>9999-12-31T23:59:59Z</Time>
+      <DistanceMeters>0.0</DistanceMeters>
+      <HeartRateBpm><Value>100</Value></HeartRateBpm>
+     </Trackpoint>
+     <Trackpoint>
+      <Time>+010000-01-01T00:00:01Z</Time>
+      <DistanceMeters>5.0</DistanceMeters>
+      <HeartRateBpm><Value>100</Value></HeartRateBpm>
+     </Trackpoint>
+    </Track>
+    <Notes>Level 1</Notes>
+   </Lap>
+   <Notes>20m beep test (incomplete log)</Notes>
+   <Creator xsi:type="Device_t"><Name>Bangle.js Beep Test</Name><UnitId>0</UnitId><ProductID>0</ProductID><Version><VersionMajor>0</VersionMajor><VersionMinor>1</VersionMinor></Version></Creator>
+  </Activity>
+ </Activities>
+</TrainingCenterDatabase>

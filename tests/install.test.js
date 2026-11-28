@@ -18,7 +18,7 @@ test("metadata.json: fields the App Loader needs, files, version", async () => {
     assert(s.name == meta.id || s.name.startsWith(meta.id + "."), `${s.name} starts with the app id`);
   }
   const listed = meta.storage.map(s => s.url);
-  for (const f of ["app.js", "app-icon.js", "lib.js", "boot.js", "widget.js"])
+  for (const f of ["app.js", "app-icon.js", "lib.js", "boot.js", "widget.js", "sync.js"])
     assert(listed.includes(f), `${f} is installed`);
   for (const d of meta.data) assert((d.name || d.wildcard).startsWith(meta.id + "."), `${d.name || d.wildcard} starts with the app id`);
   for (const s of meta.screenshots) assert(fs.existsSync(path.join(ROOT, s.url)), `${s.url} exists`);

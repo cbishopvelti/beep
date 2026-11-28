@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The adaptive launcher icon's mark, after the watch app's app.png: a
+     heart over a shuttle, an arrow running between the two lines. Drawn on a
+     64-unit grid, scaled onto the 66 dp safe zone of the 108 dp canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="21"
+        android:translateY="21"
+        android:scaleX="1.03125"
+        android:scaleY="1.03125">
+        <!-- The two lines a shuttle runs between. -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M8,14h5v36h-5Z M51,14h5v36h-5Z" />
+        <!-- The arrow, both ways. -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M16,36L24,28V34H40V28L48,36L40,44V38H24V44Z" />
+        <!-- Heart rate. -->
+        <path
+            android:fillColor="#E53935"
+            android:pathData="M32,26L23.46,18.54A5,5 0,1 1,32 15A5,5 0,1 1,40.54 18.54Z" />
+    </group>
+</vector>

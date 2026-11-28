@@ -1,0 +1,6 @@
+/target
+/beep-data
+.gradle/
+build/
+local.properties
+/app/src/main/jniLibs/

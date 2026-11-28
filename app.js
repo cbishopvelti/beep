@@ -13,8 +13,12 @@ var HISTORY = "beeptest.json";
 var COUNTDOWN = 3;
 var COURSES = [20, 15];
 
-var settings = storage.readJSON(SETTINGS, 1) || {};
-if (COURSES.indexOf(settings.m) < 0) settings.m = 20;
+var settings;
+function readSettings() {
+  settings = storage.readJSON(SETTINGS, 1) || {};
+  if (COURSES.indexOf(settings.m) < 0) settings.m = 20;
+}
+readSettings();
 
 var view;      // "ready", "countdown", "run", "result", "menu"
 var timers = {};
@@ -171,11 +175,11 @@ function showMenu(stopAt) {
         value: COURSES.indexOf(settings.m),
         min: 0, max: COURSES.length - 1,
         format: function (v) { return COURSES[v] + "m"; },
-        onchange: function (v) { settings.m = COURSES[v]; storage.writeJSON(SETTINGS, settings); }
+        onchange: function (v) { settings.m = COURSES[v]; storage.writeJSON(SETTINGS, settings); require("beeptest.sync").state(); }
       },
       "GPS speed": {
         value: !!settings.gps,
-        onchange: function (v) { settings.gps = v; storage.writeJSON(SETTINGS, settings); }
+        onchange: function (v) { settings.gps = v; storage.writeJSON(SETTINGS, settings); require("beeptest.sync").state(); }
       },
       "Results": showHistory,
       "Exit": function () { load(); }
@@ -206,26 +210,49 @@ function showHistory() {
     var d = new Date(res.t);
     var label = d.getDate() + "/" + (d.getMonth() + 1) + " " + (res.m || 20) + "m " + res.l + "." + res.s;
     while (m[label]) label += " "; // same day, course and result: keep both
-    m[label] = function () { showEntry(i); };
+    m[label] = function () { showEntry(i, res.f); };
   });
   E.showMenu(m);
 }
 
-function showEntry(i) {
+/* Where a result is in the history: by its log's file name f when it has
+   one (the phone may have deleted others since the list was shown, which
+   moves it), else at index i if it's still the same result. -1 if gone. */
+function findEntry(hist, i, f, res) {
+  if (f) {
+    for (var j = 0; j < hist.length; j++) if (hist[j] && hist[j].f == f) return j;
+    return -1;
+  }
+  return hist[i] && (!res || JSON.stringify(hist[i]) == JSON.stringify(res)) ? i : -1;
+}
+
+function showEntry(i, f) {
   var hist = storage.readJSON(HISTORY, 1) || [];
+  i = findEntry(hist, i, f);
   var res = hist[i];
   if (!res) return showHistory();
   showResult(res, function () {
     view = "menu";
     E.showMenu({
       "": { title: res.l + "." + res.s, back: showHistory },
-      "Show again": function () { showEntry(i); },
+      "Show again": function () { showEntry(i, res.f); },
       "Delete": function () {
         E.showPrompt("Delete result and HR log?").then(function (ok) {
           if (ok) {
-            hist.splice(i, 1);
-            storage.writeJSON(HISTORY, hist);
-            if (res.f) storage.open(res.f, "r").erase();
+            // The history as it is now: the phone may have changed it
+            // since (beeptest-sync), and writing back the copy read
+            // above would bring back what it deleted
+            var cur = storage.readJSON(HISTORY, 1) || [];
+            var j = findEntry(cur, i, res.f, res);
+            if (j >= 0) {
+              cur.splice(j, 1);
+              storage.writeJSON(HISTORY, cur);
+            }
+            if (res.f) {
+              storage.open(res.f, "r").erase();
+              require("beeptest.sync").deleted(res.f); // so the phone deletes it too
+            }
+            require("beeptest.sync").state();
           }
           showHistory();
         });
@@ -233,6 +260,13 @@ function showEntry(i) {
     });
   });
 }
+
+// The phone app changed the course or GPS setting (sync.js)
+Bangle.on("beeptest", function (e) {
+  if (e.type != "settings") return;
+  readSettings();
+  if (view == "ready") showReady();
+});
 
 g.clear();
 Bangle.loadWidgets();
