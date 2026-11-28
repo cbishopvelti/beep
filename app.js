@@ -92,7 +92,7 @@ function startCountdown() {
       showRun();
       return;
     }
-    Bangle.buzz(80, 0.6);
+    Bangle.buzz(100, 1);
     n--;
     timers.cd = setTimeout(tick, 1000);
   }
@@ -124,13 +124,17 @@ function drawRun() {
   g.setFontAlign(0, -1).setFont("6x8").drawString("LEVEL", R.x + R.w / 4, R.y + 2).drawString("SHUTTLE", R.x + 3 * R.w / 4, R.y + 2);
   g.setFont("Vector", 44).drawString(s.level, R.x + R.w / 4, R.y + 12);
   g.setFont("Vector", s.shuttles > 9 ? 26 : 30).drawString((s.shuttle + 1) + "/" + s.shuttles, R.x + 3 * R.w / 4, R.y + 18);
-  var by = R.y + 62;
+  var by = R.y + 60;
   g.drawRect(R.x + 4, by, R.x2 - 4, by + 14);
   g.fillRect(R.x + 6, by + 2, R.x + 6 + (R.w - 12) * f, by + 12);
-  g.setFont("6x8").setFontAlign(0, -1).drawString(s.m + "m  " + s.speed.toFixed(1) + " km/h  " + Math.max(0, s.left).toFixed(1) + "s", cx, by + 18);
-  heart(R.x + 14, by + 42, 8);
-  g.setFont("Vector", 26).setFontAlign(-1, -1).drawString(s.bpm > 0 ? Math.round(s.bpm) : "--", R.x + 28, by + 32);
-  g.setFont("Vector", s.dist >= 1000 ? 20 : 26).setFontAlign(1, -1).drawString(s.dist + "m", R.x2 - 4, by + 34);
+  g.setFont("6x8").setFontAlign(0, -1).drawString(s.m + "m  " + Math.max(0, s.left).toFixed(1) + "s", cx, by + 17);
+  // heart rate and target speed side by side, the same size
+  var ry = by + 30;
+  heart(R.x + 14, ry + 10, 8);
+  g.setFont("Vector", 26).setFontAlign(-1, -1).drawString(s.bpm > 0 ? Math.round(s.bpm) : "--", R.x + 28, ry);
+  g.setFontAlign(1, -1).drawString(s.speed.toFixed(1), R.x2 - 30, ry);
+  g.setFont("6x8").setFontAlign(1, 1).drawString("km/h", R.x2 - 4, ry + 22);
+  g.setFont("Vector", 20).setFontAlign(0, -1).drawString(s.dist + "m", cx, ry + 30);
   g.setFont("6x8").setFontAlign(-1, 1).drawString(fmtTime(s.t), R.x + 4, R.y2 - 2);
   if (s.gps) g.setFontAlign(1, 1).drawString("GPS " + (isNaN(s.gpsSpeed) ? "--" : s.gpsSpeed.toFixed(1)) + " km/h", R.x2 - 4, R.y2 - 2);
 }

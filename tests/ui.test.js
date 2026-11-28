@@ -127,14 +127,14 @@ test("Cancel test asks first, then discards the run", async h => {
   assert.eq(h.eval('require("Storage").readJSON("beeptest.json",1)||[]'), []);
 });
 
-test("running screen: level, shuttle, HR, distance; GPS only when on", async h => {
+test("running screen: level, shuttle, HR, km/h, distance; GPS only when on", async h => {
   startAgo(h, 20, timeAt(h, 20, 7, 4) + 2);
   await h.load("beeptest.app.js");
   h.tx('Bangle.emit("HRM",{bpm:164,confidence:90})');
   spyDraw(h);
   await h.wait(300);
   let drawn = h.eval("DRAWN");
-  for (const s of ["7", "5/10", "164", "1100m"]) assert(drawn.includes(s), `drew ${s}: ${drawn}`);
+  for (const s of ["7", "5/10", "164", "11.5", "km/h", "1100m"]) assert(drawn.includes(s), `drew ${s}: ${drawn}`);
   assert(!drawn.some(s => /GPS|BTN/.test(s)), "no GPS row or hint: " + drawn);
   h.tx(`${BT}.cancel()`);
   h.tx(`${BT}.start(20,{gps:true})`);

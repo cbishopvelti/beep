@@ -19,7 +19,7 @@ test("tables: 8.0 then 9.0 km/h, +0.5 a level, about a minute each", async h => 
     }
 });
 
-test("start: state saved, HR log started, HRM on, 2 buzzes", async h => {
+test("start: state saved, HR log started, HRM on, 3 buzzes", async h => {
   spyBuzz(h);
   h.tx(`${BT}.start(20)`);
   await h.wait(1000);
@@ -28,24 +28,24 @@ test("start: state saved, HR log started, HRM on, 2 buzzes", async h => {
   assert(/^beeptest\.\d+\.csv$/.test(st.file), st.file);
   assert.eq(h.eval("HRM_USERS"), { beeptest: 1 });
   assert.eq(h.eval("GPS_USERS"), {}, "no GPS unless asked");
-  assert.eq(h.eval("BUZZ.length"), 2);
+  assert.eq(h.eval("BUZZ.length"), 3);
   const log = readFile(h, st.file).split("\n");
   assert(/^start,\d+,-?\d+,20$/.test(log[0]), log[0]);
   assert(log.length >= 3, "samples once a second");
 });
 
-test("cues: 1 buzz a shuttle, 2 at a new level, on the table's times", async h => {
+test("cues: 1 buzz a shuttle, 3 at a new level, on the table's times", async h => {
   h.tx(`${BT}.start(20)`);
   spyBuzz(h);
   const t0 = h.eval(`getTime()`);
   await h.wait(64000);
   const buzz = h.eval("BUZZ").map(([t, l]) => [Math.round((t - t0) * 100) / 100, l]);
-  // 6 shuttles at 9 s, then 2 buzzes when level 2 starts at 63 s
-  const shuttles = buzz.filter(b => b[1] == 180).map(b => b[0]);
+  // 6 shuttles at 9 s, then 3 buzzes when level 2 starts at 63 s
+  const shuttles = buzz.filter(b => b[1] == 300).map(b => b[0]);
   assert.eq(shuttles.length, 6, JSON.stringify(buzz));
   shuttles.forEach((t, i) => assert.near(t, 9 * (i + 1), 0.05, `shuttle ${i + 1}`));
-  const level = buzz.filter(b => b[1] == 150 && b[0] > 1); // not the start's
-  assert.eq(level.length, 2, "two buzzes for level 2");
+  const level = buzz.filter(b => b[1] == 250 && b[0] > 1); // not the start's
+  assert.eq(level.length, 3, "three buzzes for level 2");
   assert.near(level[0][0], 63, 0.05, "level 2 at 63 s");
   assert.eq(h.eval(`${BT}.status().level`), 2);
 });
@@ -203,7 +203,7 @@ test("the phone setting the clock mid-test doesn't move the test", async h => {
   await h.wait(24000);
   assert.near(h.eval(`${BT}.status().t`), 64, 0.1, "elapsed time");
   assert.eq(h.eval(`${BT}.status().level`), 2);
-  assert.eq(h.eval("BUZZ.filter(function(b){return b[1]==180}).length"), 6, "every shuttle cued once");
+  assert.eq(h.eval("BUZZ.filter(function(b){return b[1]==300}).length"), 6, "every shuttle cued once");
   const st = h.eval('require("Storage").readJSON("beeptest.state.json")');
   const res = h.eval(`${BT}.stop(false)`);
   assert.eq([res.l, res.s], [1, 7]);

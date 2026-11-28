@@ -56,17 +56,18 @@ var tBeep, tLog;
 // crashed), it ended when the log did, not when it was found again.
 var GAP = 20; // seconds
 
-// Vibration cues: one short buzz per shuttle, two at each new level
-var SHUTTLE_BUZZ = 180, LEVEL_BUZZ = 150; // ms
+// Vibration cues: one buzz per shuttle, three at each new level (and the start)
+// The motor is already at full power, so a longer buzz is the way to a stronger one
+var SHUTTLE_BUZZ = 300, LEVEL_BUZZ = 250, GAP_BUZZ = 150; // ms
 function cueShuttle() { cue(1, SHUTTLE_BUZZ); }
-function cueLevel() { cue(2, LEVEL_BUZZ); }
+function cueLevel() { cue(3, LEVEL_BUZZ); }
 function cue(n, len) {
   var p = Promise.resolve();
   for (var i = 0; i < n; i++) {
     p = p.then(function () {
       return Bangle.buzz(len, 1);
     });
-    if (i < n - 1) p = p.then(function () { return new Promise(function (r) { setTimeout(r, 120); }); });
+    if (i < n - 1) p = p.then(function () { return new Promise(function (r) { setTimeout(r, GAP_BUZZ); }); });
   }
   return p;
 }
