@@ -8,14 +8,98 @@
 | File | On the watch | What it does |
 |---|---|---|
 | `lib.js` | `beeptest` (module) | The test engine: level tables, cues, HR/GPS logging, results. The schedule is a pure function of time since the start, so it never drifts and can be resumed. |
-| `boot.js` | `beeptest.boot.js` | On every app load, resumes a test in progress from `beeptest.state.json`, so it keeps running at the clock. |
+| `boot.js` | `beeptest.boot.js` | On every app load, resumes a test in progress from `beeptest.state.json`, so it keeps running at the clock, and passes the phone app's messages to `beeptest.sync`. |
+| `sync.js` | `beeptest.sync` (module) | The watch's side of the sync with the Beep Test phone app (The watch link, below). Only loaded when the phone sends something or connects, or there's something to tell it. |
 | `widget.js` | `beeptest.wid.js` | Shows `level.shuttle` and heart rate on the clock while a test runs. |
 | `app.js` | `beeptest.app.js` | The screens and menus. |
 | `interface.html`, `beeplog.js` | (App Loader only) | The download page: turns a log into TCX or CSV. |
 
-Data on the watch: `beeptest.json` (past results), `beeptest.settings.json`
-(course, GPS), `beeptest.state.json` (the test in progress) and one
-`beeptest.<start time>.csv` StorageFile per test with a line a second.
+Data on the watch: `beeptest.json` (past results, the last 30),
+`beeptest.settings.json` (course, GPS), `beeptest.state.json` (the test in
+progress), `beeptest.sync.json` (results deleted on the watch, for the phone)
+and one `beeptest.<start time>.csv` StorageFile per test with a line a second.
+
+## The watch link
+
+The phone app (`android/`) keeps every result and heart rate log, and stays
+in sync with the watch: results and logs come off the watch by themselves,
+a delete on either side deletes on both, and the course and GPS speed can
+be set from the phone. It talks to the watch through Bangle.js Gadgetbridge,
+as blink does, or directly over Bluetooth (the same lines both ways).
+
+**Phone to watch.** A line `\x10GB(<json>)\n`, ASCII only (anything outside
+0x20..0x7e is written as `\uXXXX`): broadcast as `com.banglejs.uart.tx` with
+the extra `line`, which Gadgetbridge passes on, or written to the UART over
+the direct link. Android Integration sets up `GB()`, and `beeptest.boot.js`
+wraps it (boot files run in name order, so `android` comes first): it takes
+every message whose `t` starts with `beeptest-` and passes the rest on.
+Android Integration must not see Beep Test's messages: it `console.log`s any
+type it has no handler for ("GB Unknown", pretty-printed over several lines),
+the console is the Bluetooth link, and Gadgetbridge pops up "Malformed JSON
+from Bangle.js" for a printed line that starts with `{`
+(`tests/console.test.js` checks the console stays quiet).
+
+| `t` | Fields | What the watch does |
+| --- | --- | --- |
+| `beeptest-sync` | `del`: log file names of results deleted on the phone (may be absent) | Deletes each named result (its history entry and its log; never the running test's), then answers `state`. |
+| `beeptest-get` | `f`: file name, `at`: byte offset to start from (default 0) | Sends that file from `at` as `log` pieces, then `logend`. `f` is a log (`beeptest.<digits>.csv`, a StorageFile) or `beeptest.json` (the history). One transfer at a time: a new `get` replaces one in progress (which ends without a `logend`). While a test is running it answers `busy` instead, since reading storage must not delay the cues, and a test that starts during a transfer stops it with `busy` too. A file that isn't there (or any other name) answers `logend` with `len` `-1`. |
+| `beeptest-set` | `m`: 20 or 15, `gps`: true or false (each optional) | Saves them to `beeptest.settings.json` (a bad `m` is ignored), emits `Bangle.emit("beeptest", {type: "settings"})` so an open app shows them, then answers `state`. |
+
+**Watch to phone.** A Gadgetbridge intent message, which Gadgetbridge
+broadcasts when Allow Intents is on, sent as blink's watch app does:
+`require("android").gbSend(m)` when Android Integration is there, else an
+empty line and then the JSON with `Bluetooth.println`.
+
+```json
+{"t":"intent","target":"broadcastreceiver","package":"com.cbishopvelti.beep",
+ "action":"com.cbishopvelti.beep.WATCH","extra":{"event":"state", ...}}
+```
+
+Extras are all strings, as Gadgetbridge puts them on the intent. Nothing
+is sent when no phone is connected (`NRF.getSecurityStatus().connected`).
+
+| `event` | Extras | When |
+| --- | --- | --- |
+| `state` | `v` (the version installed, from `beeptest.info`), `m` (`"20"` or `"15"`), `gps` (`"true"` or `"false"`), `run` (the running test's log file name, or `""`), `hist` (`"<length>:<crc>"` of the history as the phone gets it, `"0:0"` when there's none), `del` (log file names of results deleted on the watch, comma-separated, newest last, at most 30; `""` when none) | The answer to `beeptest-sync` and `beeptest-set`. Also sent unasked when a test starts, ends or is cancelled, when a result is deleted on the watch, when Course or GPS speed is changed on the watch, and 3 s after a phone connects (after Android Integration's own hello). |
+| `log` | `f`, `at` (where this piece starts in the file), `crc` (`E.CRC32` of `d`), `d` (the piece: up to 1000 bytes of the file, as text) | A piece of the file asked for, in order, one per 50 ms timer tick so the watch stays responsive. |
+| `logend` | `f`, `len` (the file's length in bytes, or `-1` if it isn't there) | After the last piece. Also `-1` when the file being sent is deleted (on the watch, or by a sync). |
+| `busy` | `f` | A `beeptest-get` while a test is running: nothing is sent; ask again after the next `state` (which comes when the test ends). |
+
+CRCs are `E.CRC32` as an unsigned decimal, the same number as zlib's
+`crc32` of the same bytes. The history goes as `JSON.stringify` of
+`beeptest.json`, not the file's own bytes: `Storage.writeJSON` leaves the
+quotes off keys (`{t:1781344800000,m:20,...}`), which a JSON parser on the
+phone refuses. `hist` is the length and CRC of that same text, so the phone
+compares it with what it fetched last. A history entry is
+`{t (ms), m, l, s, d (m), dur (s), max, avg, f}` (see `lib.js` `stop`), and
+results are known by their log's file name `f`.
+
+Deleting a result on the watch (its Results menu, or Delete on the App
+Loader's download page) records the log's file name in `beeptest.sync.json`
+(`{"del":[...]}`, the last 30), which is what `state`'s `del` reports. A delete
+the phone asked for isn't recorded there.
+
+The phone's side (when it syncs, how it resumes a log from the size of what
+it has, what it checks) is in `android/README.md`.
+
+`tests/fixtures/watch-lines.txt` is what the watch prints for a scripted
+exchange (`tests/fixtures.test.js`): the phone app's tests feed it to its
+sync engine. `tests/fixtures/phone-lines.txt` is lines as the phone app
+builds them, which the watch's tests check it reads. `BEEP_BLESS=1` writes
+either one again on its own side.
+
+**Trying it by hand.** With the phone on adb and Gadgetbridge connected:
+
+```sh
+# Does the watch answer? (a state intent arrives at the phone app)
+adb shell "am broadcast -a com.banglejs.uart.tx --es line 'GB({\"t\":\"beeptest-sync\"})'"
+# Does the phone app hear the watch? (as if the watch said state)
+adb shell am broadcast -a com.cbishopvelti.beep.WATCH -p com.cbishopvelti.beep --es event state
+```
+
+On the watch, with the Web IDE connected instead,
+`GB({t:"beeptest-get",f:"beeptest.json"})` prints the history's pieces in
+the console.
 
 ## Installing development builds
 
@@ -92,6 +176,11 @@ before a check that needs the watch on your wrist.
    imports into Strava or Garmin Connect with heart rate and one lap per level.
 8. **GPS speed.** Outdoors, with GPS speed on, the bottom row shows a speed
    once there's a fix, and GPS goes off when the test ends.
+9. **Phone app.** With the Beep Test phone app installed and Gadgetbridge
+   connected (Allow Intents on), finish a test: it shows on the phone, with
+   its heart rate, shortly after. Delete it on the watch (Results): it goes
+   from the phone too. Change the course on the phone's Watch page: the
+   watch's start screen shows it.
 
 ## Releasing to the Bangle.js App Loader
 
