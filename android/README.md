@@ -1,0 +1,195 @@
+# Beep Test for Android
+
+The phone app, written in Rust: an [egui](https://github.com/emilk/egui) UI (through eframe, on a
+`NativeActivity`), built the way blink's phone app is. It keeps the phone and the watch in sync:
+results and heart rate logs come off the watch by themselves, a delete on either side deletes on
+both, and the watch's course and GPS speed setting can be changed from the phone. Everything is
+kept in plain files in the app's files directory, and the phone is the long-term store (the watch
+only remembers its last 30 results). There's no server and no account.
+
+| File | What |
+| --- | --- |
+| `src/link.rs` | The watch link's wire format, from the phone's side: the lines it sends (`beeptest-sync`, `beeptest-get`, `beeptest-set`), and the watch's events (`state`, `log`, `logend`, `busy`), checked before anything uses them. |
+| `src/sync.rs` | The sync engine: given the store and an input (the app opened, Sync now, the direct link coming up, a watch event, a tick, a delete, a setting changed), it updates the store and says which lines to send. It has no JNI, threads or clock of its own, so it's all tested on the desktop. |
+| `src/store.rs` | The files: `results.json` (every result, the tombstones of deleted ones, the watch's history as last fetched), `logs/`, `watch.json`, `app.json`, `health/`, `exports/`. Every write is atomic (a temp file, then a rename). |
+| `src/beeplog.rs` | A port of the watch's `beeplog.js`: reads a log, and writes TCX or CSV byte for byte as `beeplog.js` does. Also the rows and the heart rate series the result page draws. |
+| `src/tables.rs` | The level tables, as the watch's `lib.js` has them. |
+| `src/health.rs` | When the watch was last heard from and last synced (files in `health/`), and times in the phone's time zone. |
+| `src/watch_ble.rs` | The direct link to the watch, without Gadgetbridge (Settings, off by default): the setting (in `watch.json`), what Settings and Watch say about it, and the bytes on the wire (writes in MTU-sized pieces with the watch's XON/XOFF, what it prints read back a line at a time, the clock line). See "The watch without Gadgetbridge" below. |
+| `src/platform/mod.rs` | The process's one store and sync engine: every input goes through `platform::dispatch`, which runs it under one lock and sends the lines it returns. The desktop's versions of the platform calls (they log). |
+| `src/platform/android.rs` | Android over JNI: sending a line (the Gadgetbridge broadcast, or the direct link), `WatchReceiver`'s broadcast (which needs no UI: the process may have started just for it), `BootReceiver`, the share sheet, the theme and the system bars, the safe area and the density. |
+| `src/platform/android/ble.rs` | The direct link's Bluetooth calls, ported from blink's: the GATT connection to the watch's UART service (`WatchGatt` reports it), the scan for watches (`WatchScan`), and `WatchService`, the foreground service that keeps it while the app is closed. |
+| `src/platform/android/ui_loop.rs` | blink's event loop wrapper, which lets the loop sleep while the app is in the background (eframe 0.33 would otherwise spin a CPU core), and syncs when the app comes back to the front. |
+| `src/ui.rs`, `src/ui/` | The pages, from a menu as blink's: Results (`ui/results.rs`), a result (`ui/result.rs`), Watch (`ui/watch.rs`) and Settings (`ui/settings.rs`). |
+| `src/lib.rs` | `android_main`, the entry the NativeActivity calls, and `app()` for the desktop. |
+| `src/bin/desktop.rs` | The same app in a desktop window, for working on it without a phone. |
+| `app/src/main/java` | Stub classes, the only Java: Android delivers broadcasts, the Bluetooth callbacks and the service's start to classes named in the manifest, which Rust can't define. Each passes what it gets straight to Rust and holds no logic (`ThemeStub` sets the system bar icons, which must happen on Android's UI thread). See "The Java side" below. |
+| `app/` | The Gradle project that packages `libbeep_android.so` into an APK. |
+| `fonts/` | Ubuntu Medium, for headings (UFL, `fonts/UFL.txt`), as blink's. |
+
+## Building
+
+You need Rust (stable, 1.85 or later), and for the APK the Android SDK with NDK 27.2.12479018 and
+platform 36, JDK 17 or later, and [cargo-ndk](https://github.com/bbqsrc/cargo-ndk).
+
+```sh
+cd android
+cargo test                 # the sync engine, the store, the log port, on the desktop
+cargo run                  # the app in a desktop window, data in ./beep-data (or $BEEP_DATA)
+
+rustup target add aarch64-linux-android x86_64-linux-android
+cargo install cargo-ndk
+export ANDROID_HOME=~/Android/Sdk          # or write sdk.dir to local.properties
+./gradlew installDebug                     # builds the Rust library, then the APK, and installs it
+./gradlew assembleDebug -PrustTargets=arm64-v8a   # one ABI only, for a faster loop
+```
+
+The APK is `app/build/outputs/apk/debug/app-debug.apk`. Logs: `adb logcat -s beep`. On the desktop
+`BEEP_BLUETOOTH=off` makes Settings act as if Bluetooth wasn't allowed.
+
+Builds are signed with `app/debug.keystore`, the repo's own debug key (alias `androiddebugkey`,
+password `android`, as Android's own debug keys are), so an APK built on any machine installs over
+one built on another without uninstalling, which would lose the phone's results.
+
+GitHub builds it too (`.github/workflows/android.yml`): the desktop checks, then the APK, kept as
+the `beep-android-apk` artifact of each run. Each push to main that changes the app also puts it on
+the `android-latest` prerelease, so the newest build is always at
+https://github.com/cbishopvelti/bleep/releases/download/android-latest/beep-android.apk.
+
+Checks before pushing, from `android/`:
+
+```sh
+cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+```
+
+The Android-only code (`src/platform/android*`) isn't compiled on the desktop. It type-checks
+without the SDK or NDK, since that needs only Rust's standard library for the target:
+
+```sh
+rustup target add aarch64-linux-android
+cargo clippy --target aarch64-linux-android --lib -- -D warnings
+```
+
+## Version
+
+The version is Cargo.toml's (`0.1.0`), which Gradle also makes the APK's `versionName`; Settings
+shows it. The `versionCode` is the minute the APK was built instead: Android won't install over a
+higher code, so this way any newer build installs over an older one, whichever branch it came from.
+There's no build number: change the version in Cargo.toml when a change is worth one.
+
+## Reaching the watch
+
+The messages both ways, and what the watch does with them, are in `docs/DEVELOPMENT.md` at the repo
+root ("The watch link"). This is the phone's side.
+
+**Through Gadgetbridge** (the default). Turn on "Allow Intents" in Gadgetbridge's settings for the
+Bangle.js. The app sends each line as Gadgetbridge's `com.banglejs.uart.tx` broadcast with the extra
+`line`, which Gadgetbridge writes to the watch. The watch's events come back as Gadgetbridge
+broadcasts of `com.cbishopvelti.beep.WATCH` to `WatchReceiver`, which Android delivers even with
+the app closed, starting its process if need be. `WatchReceiver` hands the intent to Rust, which
+opens the store from the files directory (if the process has just started), reads the extras the
+events can have (`link::EXTRAS`), checks them (`link::parse_event`) and runs the event through the
+sync engine; any line that answers it (the next `get`, say) goes out from there, with no UI.
+
+**When it syncs**: when the app opens or comes back to the front, on **Sync now**, when the direct
+link connects, and whenever the watch says `state` (which it does by itself when a test starts or
+ends, a result is deleted on it, its settings change, or a phone connects). A sync is a
+`beeptest-sync` line, which carries the deletes the watch hasn't done yet, and the watch answers
+`state`. Then:
+
+- The phone saves what the watch said (its version, course, GPS speed, the running test) and
+  deletes every result the watch says was deleted on it, with its log.
+- If the watch's history isn't the one the phone last fetched whole (`hist`, its length and CRC),
+  it's fetched again (`beeptest-get` `beeptest.json`), and taken in only when it arrived whole and
+  its CRC matches: new results are added, known ones updated, and results the watch no longer
+  lists are kept. A result deleted on the phone never comes back, and a delete stays pending until
+  the watch's history no longer lists it.
+- Then each result whose log isn't on the phone yet, one at a time, not the running test's: it's
+  asked for from the size of what's already here (`logs/<f>.part`), so a transfer cut off (the app
+  killed, the watch out of range) carries on where it stopped. Each piece is appended only if it's
+  the next one and its CRC is right; a broken or short transfer is asked for again, at most 3 times
+  a file a round, and a transfer that stops for 10 s while the app is open counts as broken. A
+  complete log is renamed to `logs/<f>`.
+- `busy` (a test is running on the watch) stops the round: the watch says `state` when the test
+  ends, which starts the next.
+
+Everything the phone needs to carry on is on disk, so a round interrupted by the app being killed
+carries on at the next `state` or sync. Since the receiver is exported (Gadgetbridge has to reach
+it), any app on the phone can send it an intent: file names must be the watch's
+(`beeptest.<digits>.csv` or `beeptest.json`), a log is refused past 4 MB and the history past 64 KB,
+and numbers must parse.
+
+### The watch without Gadgetbridge
+
+Settings has **Connect to the watch directly, without Gadgetbridge**, off by default. On, the phone
+app is the watch's Bluetooth central itself and Gadgetbridge isn't needed, as in blink
+(`src/watch_ble.rs`, `src/platform/android/ble.rs`). Nothing changes on the watch: it's the same
+Nordic UART service and the same lines Gadgetbridge writes and reads. The watch takes one phone
+connection at a time, so Gadgetbridge has to let go of it first (disconnect it there).
+
+- **Turning it on** asks for "Nearby devices" (`BLUETOOTH_SCAN`, without location, and
+  `BLUETOOTH_CONNECT`) on Android 12 and later, with notifications on 13 and later so the service's
+  notification shows. Android 11 and earlier only find Bluetooth devices for an app with location,
+  so there it asks for that instead (the manifest asks for location on those versions only). It
+  opens a pop-up that scans for `Bangle.js ...` watches, nearest first; tap one. A watch connected
+  to Gadgetbridge (or anything else) doesn't advertise, so it isn't listed until Gadgetbridge lets
+  go of it.
+- **The connection** is `connectGatt` with `autoConnect`, so Android connects whenever the watch is
+  about, and again after it goes out of range. It asks for a 131-byte MTU, finds the UART service,
+  turns notifications on, and is up. A timer checks every 20 s while it's wanted, for Bluetooth
+  turned back on or the permission granted later, and sends the clock again after a time zone
+  change or the clock being set, as Gadgetbridge does.
+- **While the app is closed**, `WatchService` (a `connectedDevice` foreground service, started by
+  the app and by `BootReceiver` after a reboot or an update) keeps the app running with a quiet
+  "Connected to your watch" notification in its own channel, as Gadgetbridge's own service does.
+- **On connecting** the phone writes what Gadgetbridge does first: a Ctrl-C on its own (the
+  console drops what comes in the same write as one), then 0.3 s later
+  `setTime(...);E.setTimeZone(...)`, and then it syncs.
+- **Writes** go in MTU-sized pieces, one at a time, each waiting for the last
+  (`onCharacteristicWrite`), and stop while the watch says XOFF until XON. A line while the watch
+  isn't connected goes to Gadgetbridge instead, as in blink: the watch may still be Gadgetbridge's,
+  and the link syncs once it's up.
+- **Reads**: what the watch prints is split into lines, and an intent message for
+  `com.cbishopvelti.beep.WATCH` goes through the same code as `WatchReceiver`'s broadcast. Anything
+  else the console prints is ignored.
+
+## Sharing an export
+
+**Share TCX** and **Share CSV** on a result write the file to `exports/` in the files directory
+(`Store::export`) and open Android's share sheet: `ACTION_SEND` with a `content://` uri from the
+app's `FileProvider` (androidx.core's, authority `com.cbishopvelti.beep.files`, which hands out
+`exports/` and nothing else, `app/src/main/res/xml/file_paths.xml`) and the read permission for the
+app picked, in the chooser. On the desktop the file stays in `beep-data/exports/`.
+
+## The Java side
+
+Each stub's native methods and the Rust functions they land in (names as JNI mangles them:
+`Java_com_cbishopvelti_beep_<Class>_<method>`). Every stub loads `libbeep_android.so` first.
+
+| Class | Java | Rust |
+| --- | --- | --- |
+| `WatchReceiver` (a `BroadcastReceiver`, `com.cbishopvelti.beep.WATCH`) | `nativeWatch(Context, Intent)` | `platform/android.rs` |
+| `BootReceiver` (`BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`) | `nativeBoot(Context)` | `platform/android.rs` |
+| `WatchGatt` (a `BluetoothGattCallback`) | `nativeState(BluetoothGatt, int status, int state)`, `nativeMtu(BluetoothGatt, int mtu, int status)`, `nativeServices(BluetoothGatt, int)`, `nativeDescriptor(BluetoothGatt, int)`, `nativeWritten(BluetoothGatt, int)`, `nativeChanged(BluetoothGatt, byte[])` | `platform/android/ble.rs` |
+| `WatchScan` (a `ScanCallback`) | `nativeFound(String address, String name, int rssi)` | `platform/android/ble.rs` |
+| `WatchService` (a foreground `Service`) | `nativeStarted(Service)`, `nativeStopped()` | `platform/android/ble.rs` |
+| `ThemeStub` | none: Rust calls its static `lightBars(Activity, boolean)` | `platform/android.rs` |
+
+Everything else is Rust calling Android's own classes over JNI, from whatever thread it's on
+(attached to the JavaVM for good), loading the app's own classes and androidx's `FileProvider`
+through the app's class loader, since a native thread's `FindClass` only sees Android's.
+
+## What has been tested
+
+Nothing has run on a real phone yet, and the APK hasn't been built yet either: the Android SDK
+can't be fetched where this was written, so the first build is GitHub's workflow's. What was
+checked without them: the Android code type-checks for `aarch64-linux-android` and
+`x86_64-linux-android` (and passes clippy), and a static build of the library for
+`aarch64-linux-android` exports `ANativeActivity_onCreate`, `android_main` and every
+`Java_com_cbishopvelti_beep_*` function. The Java stubs compile (`javac` against Robolectric's
+`android-all` jar for Android 16), the headers `javac -h` writes from them match the Rust
+functions' names and parameters, and every Android method and field the Rust calls (83 of them) was
+checked by name, signature and static-ness against that jar's classes. Only
+`FileProvider.getUriForFile`, which is androidx's, wasn't (its documented signature is used). It
+needs a real phone and watch for the rest: the broadcasts both ways with Gadgetbridge, a sync with
+the app closed, the direct link, the share sheet, the icons and the insets.

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the FileProvider may hand out: the exports the Result page writes
+     (Store::export, exports/ in the files directory), and nothing else. -->
+<paths>
+    <files-path name="exports" path="exports/" />
+</paths>
