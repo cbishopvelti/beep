@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The notification icon (WatchService's): the launcher icon's mark in
+     white, which Android tints. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8,14h5v36h-5Z M51,14h5v36h-5Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M16,36L24,28V34H40V28L48,36L40,44V38H24V44Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M32,26L23.46,18.54A5,5 0,1 1,32 15A5,5 0,1 1,40.54 18.54Z" />
+</vector>

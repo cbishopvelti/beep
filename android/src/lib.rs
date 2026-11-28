@@ -60,7 +60,13 @@ fn android_main(android: winit::platform::android::activity::AndroidApp) {
     let app = eframe::create_native(
         "Beep Test",
         eframe::NativeOptions::default(),
-        Box::new(move |_cc| Ok(Box::new(app(&dir)?))),
+        Box::new(move |_cc| {
+            let app = app(&dir)?;
+            // The direct link to the watch, and WatchService, if that's on
+            // (the setting is read from the store's directory).
+            platform::keep_watch();
+            Ok(Box::new(app))
+        }),
         &event_loop,
     );
     let mut app = platform::android::ui_loop::Sleepy::new(app);
