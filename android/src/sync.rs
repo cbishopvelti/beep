@@ -56,10 +56,10 @@
 //!    whatever came before (everything appended was checked, so the
 //!    partial is the start of the watch's file); `None` marks it
 //!    ([`Store::set_no_log`], or gives it up for the round if that can't be
-//!    written); a `len` past the cap gives it up for the
-//!    round; a `len` shorter than the partial drops the partial; otherwise (broken, or short) it is asked for again from the
-//!    partial's size, at most [`TRIES`] times a file a round, then given
-//!    up on for the round. So is a transfer from which nothing good has
+//!    written); a `len` past the cap gives it up for the round; a `len`
+//!    shorter than the partial drops the partial; otherwise (broken, or
+//!    short) it is asked for again from the partial's size, at most
+//!    [`TRIES`] times a file a round, then given up on for the round. So is a transfer from which nothing good has
 //!    arrived for [`STALL_MS`] ([`Input::Tick`]). Then the next.
 //! 4. Nothing left: the round is done, and if nothing was given up on, the
 //!    phone has synced ([`crate::health::Link::Synced`]).

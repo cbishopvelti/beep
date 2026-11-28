@@ -235,7 +235,8 @@ pub struct State {
     pub gps: bool,
     /// The running test's log file name; `None` for `""`.
     pub run: Option<String>,
-    /// The history's length and CRC32 as stored on the watch.
+    /// The length and CRC32 of the history as the watch sends it
+    /// (`JSON.stringify` of its `beeptest.json`).
     pub hist: Hist,
     /// Log file names of results deleted on the watch, newest last, at most
     /// 30 (`""` is none).

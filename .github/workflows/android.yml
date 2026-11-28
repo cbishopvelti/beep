@@ -4,7 +4,7 @@ name: Android app
 # the Android SDK and NDK only come from Google's servers. Every run keeps
 # the APK as the beep-android-apk artifact. On main it's also the asset of
 # the rolling android-latest prerelease, so the newest build is always at
-# https://github.com/cbishopvelti/bleep/releases/download/android-latest/beep-android.apk
+# https://github.com/cbishopvelti/beep/releases/download/android-latest/beep-android.apk
 on:
   push:
     branches: [main]

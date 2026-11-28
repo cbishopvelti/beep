@@ -13,6 +13,8 @@
 | `widget.js` | `beeptest.wid.js` | Shows `level.shuttle` and heart rate on the clock while a test runs. |
 | `app.js` | `beeptest.app.js` | The screens and menus. |
 | `interface.html`, `beeplog.js` | (App Loader only) | The download page: turns a log into TCX or CSV. |
+| `android/` | (the phone) | The Beep Test phone app: Rust and egui, its own tests, and the Gradle project for the APK. Its files are listed in [android/README.md](../android/README.md). |
+| `tests/` | (not installed) | The emulator tests ([tests/README.md](../tests/README.md)), and in `tests/fixtures/` the files both the watch's and the phone's tests read (below). |
 
 Data on the watch: `beeptest.json` (past results, the last 30),
 `beeptest.settings.json` (course, GPS), `beeptest.state.json` (the test in
@@ -63,7 +65,7 @@ is sent when no phone is connected (`NRF.getSecurityStatus().connected`).
 | --- | --- | --- |
 | `state` | `v` (the version installed, from `beeptest.info`), `m` (`"20"` or `"15"`), `gps` (`"true"` or `"false"`), `run` (the running test's log file name, or `""`), `hist` (`"<length>:<crc>"` of the history as the phone gets it, `"0:0"` when there's none), `del` (log file names of results deleted on the watch, comma-separated, newest last, at most 30; `""` when none) | The answer to `beeptest-sync` and `beeptest-set`. Also sent unasked when a test starts, ends or is cancelled, when a result is deleted on the watch, when Course or GPS speed is changed on the watch, 3 s after a phone connects (after Android Integration's own hello), and half a second after a `load()` that cut a transfer off (below). |
 | `log` | `f`, `at` (where this piece starts in the file), `crc` (`E.CRC32` of `d`), `d` (the piece: up to 1000 bytes of the file, as text) | A piece of the file asked for, in order, one per 50 ms timer tick so the watch stays responsive. |
-| `logend` | `f`, `len` (the file's length in bytes, or `-1` if it isn't there) | After the last piece. Also `-1` when the file being sent is deleted (on the watch, or by a sync). |
+| `logend` | `f`, `len` (the file's length in bytes, or `-1` if it isn't there) | After the last piece. Also `-1` when the file being sent is deleted (on the watch, or by a sync). A transfer stops with nothing sent when the phone disconnects. |
 | `busy` | `f` | A `beeptest-get` while a test is running: nothing is sent; ask again after the next `state` (which comes when the test ends). |
 
 CRCs are `E.CRC32` as an unsigned decimal, the same number as zlib's
@@ -93,19 +95,44 @@ for the next test.
 The phone's side (when it syncs, how it resumes a log from the size of what
 it has, what it checks) is in `android/README.md`.
 
-`tests/fixtures/watch-lines.txt` is what the watch prints for a scripted
-exchange (`tests/fixtures.test.js`): the phone app's tests feed it to its
-sync engine. `tests/fixtures/phone-lines.txt` is lines as the phone app
-builds them, which the watch's tests check it reads. `BEEP_BLESS=1` writes
-either one again on its own side.
+**Shared fixtures.** Both sides' tests read the same files in
+`tests/fixtures/`, so a change to the link on one side that the other
+doesn't expect fails a test:
+
+| File | Written by | Read by |
+| --- | --- | --- |
+| `phone-lines.txt`: one of each line the phone sends, exactly as `android/src/link.rs` builds them | `android/tests/fixtures.rs`, which fails when it's out of date | `tests/fixtures.test.js`: the watch reads every line |
+| `watch-lines.txt`: what the watch prints for a scripted exchange, one message a line | `tests/fixtures.test.js`, which fails when the watch prints something else | `android/tests/fixtures.rs`: fed through the phone's link and sync engine, it must leave the results and logs the exchange carried |
+| `beeplog/`: logs (`<name>.log`) and what `beeplog.js` makes of them (TCX, TCX without low-confidence readings, CSV, and `expected.json`) | `node tests/fixtures/beeplog/make.js` | `android/tests/beeplog.rs`: the phone's port of `beeplog.js` must give the same, byte for byte |
+
+After a change that's meant, write the file again on the side that
+changed, then run the other side's tests:
+
+```sh
+# the watch changed what it prints
+BEEP_BLESS=1 node tests/run.js tests/fixtures.test.js
+(cd android && cargo test --test fixtures)
+# the phone changed a line it sends
+(cd android && BEEP_BLESS=1 cargo test --test fixtures)
+node tests/run.js tests/fixtures.test.js
+# beeplog.js changed
+node tests/fixtures/beeplog/make.js
+(cd android && cargo test --test beeplog)
+```
+
+The version in `watch-lines.txt`'s `state` lines is `metadata.json`'s, so
+a new watch version means writing it again too.
 
 **Trying it by hand.** With the phone on adb and Gadgetbridge connected:
 
 ```sh
 # Does the watch answer? (a state intent arrives at the phone app)
 adb shell "am broadcast -a com.banglejs.uart.tx --es line 'GB({\"t\":\"beeptest-sync\"})'"
-# Does the phone app hear the watch? (as if the watch said state)
-adb shell am broadcast -a com.cbishopvelti.beep.WATCH -p com.cbishopvelti.beep --es event state
+# Does the phone app hear the watch? (as if the watch said state, with no history)
+adb shell "am broadcast -a com.cbishopvelti.beep.WATCH -p com.cbishopvelti.beep --es event state \
+  --es v 0.05 --es m 20 --es gps false --es run '' --es hist 0:0 --es del ''"
+# What the phone app made of it (a refused event says why)
+adb logcat -s beep
 ```
 
 On the watch, with the Web IDE connected instead,

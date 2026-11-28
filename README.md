@@ -84,7 +84,8 @@ with elapsed time, heart rate, HRM confidence, level, shuttle and distance (plus
 speed and position when that's on). It keeps
 logging while you're on the clock face.
 
-To get it off the watch, connect in the App Loader you installed from,
+The [phone app](#phone-app-android) copies it to your phone by itself. Without it, to get
+it off the watch, connect in the App Loader you installed from,
 find **Beep Test** under *My Apps* and click its **download (interface) icon**. Each test
 can be downloaded as:
 
@@ -103,6 +104,71 @@ arm movement of hard running; for better data pair a chest strap with the
 
 Make sure the watch's clock is set (the App Loader sets it when you connect) so the
 exported activity has the right date.
+
+## Phone app (Android)
+
+The Beep Test phone app keeps every result and heart rate log on your phone, and stays in
+sync with the watch:
+
+* Results and their heart rate logs come off the watch by themselves. The phone keeps them
+  all (the watch only keeps its last 30).
+* A result deleted on either side is deleted on both.
+* The watch's course and GPS speed can be changed from the phone (the **Watch** page).
+* Each result has a heart rate chart with the levels marked, a table with a row per level,
+  and **Share TCX** and **Share CSV** (to Strava, Garmin Connect, a mail, ...), with the same
+  option to leave out low-confidence readings as the download page.
+
+<p>
+<img src="https://raw.githubusercontent.com/cbishopvelti/beep/main/android/screenshots/results.png" width="240" alt="Results on the phone: a progress chart and a card per result">
+<img src="https://raw.githubusercontent.com/cbishopvelti/beep/main/android/screenshots/result.png" width="240" alt="A result on the phone: the heart rate chart with the levels, and a row per level">
+</p>
+
+It needs Android 8 or later and Beep Test 0.05 or later on the watch. It is new: it hasn't
+yet been tried on a real phone, so expect rough edges, and please report them as issues on
+GitHub.
+
+### Getting it
+
+The app isn't in an app store. Download `beep-android.apk` from the
+[android-latest](https://github.com/cbishopvelti/beep/releases/tag/android-latest) release on
+the phone (it's rebuilt from main whenever the app changes) and open it. Android asks you to
+allow installing apps from your browser or file manager the first time. A newer APK installs
+over an older one and keeps your results.
+
+To try a pull request before it's merged, open its **Android app** check on GitHub, then
+**Summary**, and download `beep-android-apk` under *Artifacts* (you need to be signed in to
+GitHub). It's a zip with `beep-android.apk` in it.
+
+### Connecting to the watch
+
+**Through Gadgetbridge** (the usual way, if the watch is already paired with
+[Gadgetbridge](https://gadgetbridge.org/)):
+
+1. In Gadgetbridge, open the Bangle.js's settings (the gear on its card) and turn on
+   **Allow Intents**. Beep Test's messages go through Gadgetbridge as intents, both ways.
+2. Open the Beep Test app once. Android doesn't pass messages to an app that has never been
+   opened; after that the watch can reach it even when it's closed.
+
+**Directly, without Gadgetbridge**: in the app's **Settings**, turn on **Connect to the watch
+directly, without Gadgetbridge**, allow "Nearby devices" (location on Android 11 and earlier),
+and pick the watch from the list. The watch takes one phone connection at a time, so disconnect
+it in Gadgetbridge first. While it's connected the app shows a quiet notification, which keeps
+it connected when the app is closed.
+
+### What syncs and when
+
+The app syncs when you open it, when you press **Sync now**, and whenever the watch has
+something new for it: a test starting or ending, a result deleted, the course or GPS speed
+changed on the watch, or the phone connecting. So with the phone connected, a test's result
+shows on the phone a few seconds after it ends, and its heart rate log follows (the card says
+"Heart rate log still on the watch" until it has arrived). While a test is running on the
+watch nothing is copied, so the cues are never delayed: the sync carries on when the test
+ends.
+
+A result deleted on the phone (it asks first; there's no undo) is deleted on the watch
+straight away if it's connected, or else at the next sync. A result deleted on the watch (its **Results** menu, or the App Loader's download
+page) is deleted on the phone the next time they sync. A result the watch drops to make room
+for newer ones stays on the phone.
 
 ## More
 

@@ -164,10 +164,13 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
             );
         });
         status::line(ui);
-        let (dot, summary) = match (&progress, synced) {
-            (p, _) if p.active() => (Dot::Amber, p.words()),
-            (_, Some(t)) => (Dot::Green, health::ago(t, now)),
-            (_, None) => (Dot::Off, "Never".into()),
+        // When, with an amber dot while a sync is under way (what it's
+        // doing is under the card, by Sync now).
+        let summary = synced.map_or_else(|| "Never".into(), |t| health::ago(t, now));
+        let dot = match synced {
+            _ if progress.active() => Dot::Amber,
+            Some(_) => Dot::Green,
+            None => Dot::Off,
         };
         status::row(ui, "Last synced", Some(dot), &summary, false, |ui| {
             status::fact(
@@ -246,33 +249,40 @@ fn settings_card(app: &mut App, ui: &mut egui::Ui, watch: &WatchState) {
         if toggle::show(ui, &mut on, "Record GPS speed").changed() {
             gps = Some(on);
         }
-        ui.horizontal_wrapped(|ui| {
-            if let Some(s) = &sent {
-                super::spinner(ui);
-                let what = match (s.m, s.gps) {
-                    (Some(m), None) => format!("the {m} m course"),
-                    (None, Some(true)) => "GPS speed on".into(),
-                    (None, Some(false)) => "GPS speed off".into(),
-                    _ => "the change".into(),
-                };
-                ui.label(RichText::new(format!("Sending {what} to the watch...")).small());
-            } else if app.watch.unanswered {
-                ui.label(
-                    RichText::new(
-                        "The watch didn't answer, so it still has what's shown here. Is it \
-                         connected?",
-                    )
-                    .small()
-                    .color(status::amber_text(ui)),
-                );
-            } else if watch.m.is_none() {
-                ui.label(
-                    RichText::new("Not heard from the watch yet: its settings show once it syncs.")
+        // How the last change went, when there's something to say (an
+        // empty row would leave a gap).
+        let say = sent.is_some() || app.watch.unanswered || watch.m.is_none();
+        if say {
+            ui.horizontal_wrapped(|ui| {
+                if let Some(s) = &sent {
+                    super::spinner(ui);
+                    let what = match (s.m, s.gps) {
+                        (Some(m), None) => format!("the {m} m course"),
+                        (None, Some(true)) => "GPS speed on".into(),
+                        (None, Some(false)) => "GPS speed off".into(),
+                        _ => "the change".into(),
+                    };
+                    ui.label(RichText::new(format!("Sending {what} to the watch...")).small());
+                } else if app.watch.unanswered {
+                    ui.label(
+                        RichText::new(
+                            "The watch didn't answer, so it still has what's shown here. Is it \
+                             connected?",
+                        )
+                        .small()
+                        .color(status::amber_text(ui)),
+                    );
+                } else if watch.m.is_none() {
+                    ui.label(
+                        RichText::new(
+                            "Not heard from the watch yet: its settings show once it syncs.",
+                        )
                         .small()
                         .weak(),
-                );
-            }
-        });
+                    );
+                }
+            });
+        }
         ui.label(
             RichText::new(
                 "These are the watch's own, used for the next test it runs. A change here \

@@ -258,7 +258,8 @@ impl App {
     }
 
     /// What the back key would do now; `None` on Results with nothing open,
-    /// where it's left for Android (which closes the app).
+    /// where Android's back moves the app to the background
+    /// ([`crate::platform::leave`]) and Escape does nothing.
     pub fn back_step(&self) -> Option<Back> {
         if self.menu_open {
             Some(Back::Menu)
