@@ -2,7 +2,7 @@
    menus before and during a test, stop and cancel, the result screen.
    Run: node tests/run.js tests/ui.test.js -v */
 const { test, assert } = require("./harness");
-const { BT, timeAt, startAgo, spyMenu, menuItems, spyDraw, captureButton, press, tap } = require("./helpers");
+const { BT, timeAt, startAgo, spyMenu, menuItems, spyDraw, captureButton, press, tap, swipe } = require("./helpers");
 
 /* Open the app with the menu and button spies in place */
 async function open(h) {
@@ -38,7 +38,7 @@ test("button on the start screen opens the menu and never starts a test", async 
   await open(h);
   press(h, 150);
   assert.eq(h.eval("view"), "menu");
-  assert.eq(menuItems(h), ["Start test", "Course", "GPS speed", "Results", "Exit"]);
+  assert.eq(menuItems(h), ["Start test", "Course", "Speeds", "GPS speed", "Results", "Exit"]);
   assert(!h.eval(`${BT}.active()`));
   assert.eq(h.eval("MENU.Course.format(MENU.Course.value)"), "20m");
   assert.eq(h.eval("MENU.Course.max"), 1, "only 20m and 15m");
@@ -51,18 +51,52 @@ test("a long hold doesn't open the menu (the firmware goes to the clock)", async
   assert.eq(h.eval("view"), "ready");
 });
 
-test("course and GPS choices are remembered and used", async h => {
+/* Wait (up to 2.5 s) for a load() to bring the clock up */
+async function atClock(h) {
+  for (let i = 0; i < 50 && h.eval("global.__FILE__") === "beeptest.app.js"; i++) await h.wait(50);
+  return h.eval("global.__FILE__") !== "beeptest.app.js";
+}
+
+test("swipe right on the start screen goes to the clock, without starting", async h => {
+  await h.load("beeptest.app.js");
+  swipe(h, -1);
+  await h.wait(300);
+  assert.eq(h.eval("view"), "ready", "a left swipe does nothing");
+  swipe(h, 1);
+  assert(await atClock(h), "at the clock");
+  assert(!h.eval(`${BT}.active()`), "no test started");
+});
+
+test("swipe right during a test goes to the clock, and the test keeps running", async h => {
+  startAgo(h, 20, timeAt(h, 20, 3, 2));
+  await h.load("beeptest.app.js");
+  assert.eq(h.eval("view"), "run");
+  swipe(h, -1);
+  await h.wait(300);
+  assert.eq(h.eval("view"), "run", "a left swipe does nothing");
+  swipe(h, 1);
+  assert(await atClock(h), "at the clock");
+  assert(h.eval(`${BT}.active()`), "still running");
+});
+
+test("course, speeds and GPS choices are remembered and used", async h => {
   await open(h);
   press(h, 150);
-  h.tx('MENU.Course.onchange(1);MENU["GPS speed"].onchange(true)');
-  assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { m: 15, gps: true });
+  assert.eq(h.eval("MENU.Speeds.value"), 0, "standard speeds by default");
+  assert.eq(h.eval("[0,1,2].map(MENU.Speeds.format)"), ["8, 9", "8, 8.5", "8.5, 9.5"]);
+  h.tx('MENU.Course.onchange(1);MENU.Speeds.onchange(2);MENU["GPS speed"].onchange(true)');
+  assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { m: 15, p: 2, gps: true });
   await h.load("beeptest.app.js");
+  spyDraw(h);
+  h.tx("showReady()");
+  assert(h.eval("DRAWN").includes("8.5, 9.5, 10.0... km/h"), "start screen shows the speeds: " + h.eval("DRAWN"));
   spyMenu(h);
   h.tx("showMenu()");
   assert.eq(h.eval("MENU.Course.format(MENU.Course.value)"), "15m");
+  assert.eq(h.eval("MENU.Speeds.format(MENU.Speeds.value)"), "8.5, 9.5");
   h.tx('MENU["Start test"]()');
   await h.wait(3100);
-  assert.eq(h.eval(`[${BT}.status().m,${BT}.status().gps]`), [15, true]);
+  assert.eq(h.eval(`[${BT}.status().m,${BT}.status().gps,${BT}.status().p,${BT}.status().speed]`), [15, true, 2, 8.5]);
   assert.eq(h.eval("GPS_USERS"), { beeptest: 1 });
 });
 
@@ -127,14 +161,14 @@ test("Cancel test asks first, then discards the run", async h => {
   assert.eq(h.eval('require("Storage").readJSON("beeptest.json",1)||[]'), []);
 });
 
-test("running screen: level, shuttle, HR, distance; GPS only when on", async h => {
+test("running screen: level, shuttle, HR, km/h, distance; GPS only when on", async h => {
   startAgo(h, 20, timeAt(h, 20, 7, 4) + 2);
   await h.load("beeptest.app.js");
   h.tx('Bangle.emit("HRM",{bpm:164,confidence:90})');
   spyDraw(h);
   await h.wait(300);
   let drawn = h.eval("DRAWN");
-  for (const s of ["7", "5/10", "164", "1100m"]) assert(drawn.includes(s), `drew ${s}: ${drawn}`);
+  for (const s of ["7", "5/10", "164", "11.5", "km/h", "1100m"]) assert(drawn.includes(s), `drew ${s}: ${drawn}`);
   assert(!drawn.some(s => /GPS|BTN/.test(s)), "no GPS row or hint: " + drawn);
   h.tx(`${BT}.cancel()`);
   h.tx(`${BT}.start(20,{gps:true})`);
@@ -145,6 +179,17 @@ test("running screen: level, shuttle, HR, distance; GPS only when on", async h =
   await h.wait(300);
   drawn = h.eval("DRAWN");
   assert(drawn.includes("GPS 8.4 km/h"), "GPS speed: " + drawn);
+});
+
+test("running screen: a shuttle bar and a level bar, in two colours", async h => {
+  startAgo(h, 20, timeAt(h, 20, 7, 4) + 2); // 2 s into shuttle 5 of 10 at level 7
+  await h.load("beeptest.app.js");
+  h.tx("BARS=[];bar=function(x1,y1,x2,y2,f,c){BARS.push([f,c])};drawRun()");
+  const [sh, lv] = h.eval("BARS");
+  const dur = h.eval(`${BT}.shuttleTime(20,7)`);
+  assert.near(sh[0], 2 / dur, 0.02, "shuttle bar");
+  assert.near(lv[0], (4 + 2 / dur) / 10, 0.02, "level bar");
+  assert(sh[1] != lv[1], "different colours");
 });
 
 test("result screen after a test, tap goes back to the start screen", async h => {

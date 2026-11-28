@@ -15,6 +15,7 @@ var COURSES = [20, 15];
 
 var settings = storage.readJSON(SETTINGS, 1) || {};
 if (COURSES.indexOf(settings.m) < 0) settings.m = 20;
+if (!bt.PROGS[settings.p]) settings.p = 0;
 
 var view;      // "ready", "countdown", "run", "result", "menu"
 var timers = {};
@@ -22,6 +23,11 @@ var timers = {};
 function clearTimers() {
   for (var k in timers) { clearTimeout(timers[k]); clearInterval(timers[k]); }
   timers = {};
+}
+
+// A speed progression as its first speeds, e.g. "8.0, 9.0, 9.5..."
+function fmtSpeeds(p) {
+  return [1, 2, 3].map(function (l) { return bt.speed(l, p).toFixed(1); }).join(", ") + "...";
 }
 
 function fmtTime(s) {
@@ -40,7 +46,8 @@ function heart(x, y, r) {
 
 
 // A custom screen: short button press opens the menu. A long press is left to
-// the firmware, which goes back to the clock.
+// the firmware, which goes back to the clock, and so does a swipe right. A test
+// keeps running at the clock either way (the widget taps back into it).
 function setScreen(name, opts) {
   opts = opts || {};
   E.showMenu();
@@ -56,6 +63,7 @@ function setScreen(name, opts) {
   Bangle.setUI({
     mode: "custom",
     touch: opts.touch,
+    swipe: function (lr) { if (lr > 0) load(); },
     remove: function () { clearWatch(w); clearTimers(); if (opts.remove) opts.remove(); }
   });
   g.reset().clearRect(Bangle.appRect);
@@ -68,8 +76,9 @@ function showReady() {
   setScreen("ready", { touch: startCountdown });
   var R = Bangle.appRect, cx = R.x + R.w / 2;
   g.setFontAlign(0, -1).setFont("6x8", 2).drawString("Beep Test", cx, R.y + 4);
-  g.setFont("Vector", 40).drawString(settings.m + "m", cx, R.y + 26);
-  g.setFont("6x8", 2).drawString("Tap to start", cx, R.y + 76);
+  g.setFont("Vector", 40).drawString(settings.m + "m", cx, R.y + 24);
+  g.setFont("6x8").drawString(fmtSpeeds(settings.p) + " km/h", cx, R.y + 64);
+  g.setFont("6x8", 2).drawString("Tap to start", cx, R.y + 80);
   var last = (storage.readJSON(HISTORY, 1) || [])[0];
   g.setFont("6x8");
   if (last) g.drawString("Last: " + last.l + "." + last.s + " (" + (last.m || 20) + "m)", cx, R.y + 104);
@@ -87,12 +96,12 @@ function startCountdown() {
     g.setFontAlign(0, 0).setFont("6x8", 2).drawString("Get ready " + settings.m + "m", cx, R.y + 20);
     g.setFont("Vector", 60).drawString(n, cx, R.y + R.h / 2 + 5);
     if (n <= 0) {
-      bt.start(settings.m, { gps: settings.gps });
+      bt.start(settings.m, { gps: settings.gps, p: settings.p });
       Bangle.setHRMPower(0, "beeptest.app");
       showRun();
       return;
     }
-    Bangle.buzz(80, 0.6);
+    Bangle.buzz(100, 1);
     n--;
     timers.cd = setTimeout(tick, 1000);
   }
@@ -113,24 +122,39 @@ function showRun() {
   rate();
 }
 
+// An outlined progress bar, filled to f (0..1) in colour c
+function bar(x1, y1, x2, y2, f, c) {
+  g.setColor(g.theme.fg).drawRect(x1, y1, x2, y2);
+  if (f > 0) g.setColor(c).fillRect(x1 + 2, y1 + 2, x1 + 2 + (x2 - x1 - 4) * f, y2 - 2);
+  g.setColor(g.theme.fg);
+}
+
 function drawRun() {
   var s = bt.status();
   if (!s) return;
   var R = Bangle.appRect, cx = R.x + R.w / 2;
-  var f = 1 - s.left / s.dur;
+  var f = 1 - s.left / s.dur; // through this shuttle
   if (f < 0) f = 0;
   if (f > 1) f = 1;
+  var lf = (s.shuttle + f) / s.shuttles; // through this level (its shuttles all take as long)
+  var dark = g.theme.dark, cS = "#0f0", cL = dark ? "#0ff" : "#00f";
   g.reset().clearRect(R);
-  g.setFontAlign(0, -1).setFont("6x8").drawString("LEVEL", R.x + R.w / 4, R.y + 2).drawString("SHUTTLE", R.x + 3 * R.w / 4, R.y + 2);
+  g.setFontAlign(0, -1).setFont("6x8").setColor(cL).drawString("LEVEL", R.x + R.w / 4, R.y + 2);
+  g.setColor(dark ? cS : "#080").drawString("SHUTTLE", R.x + 3 * R.w / 4, R.y + 2).setColor(g.theme.fg);
   g.setFont("Vector", 44).drawString(s.level, R.x + R.w / 4, R.y + 12);
   g.setFont("Vector", s.shuttles > 9 ? 26 : 30).drawString((s.shuttle + 1) + "/" + s.shuttles, R.x + 3 * R.w / 4, R.y + 18);
-  var by = R.y + 62;
-  g.drawRect(R.x + 4, by, R.x2 - 4, by + 14);
-  g.fillRect(R.x + 6, by + 2, R.x + 6 + (R.w - 12) * f, by + 12);
-  g.setFont("6x8").setFontAlign(0, -1).drawString(s.m + "m  " + s.speed.toFixed(1) + " km/h  " + Math.max(0, s.left).toFixed(1) + "s", cx, by + 18);
-  heart(R.x + 14, by + 42, 8);
-  g.setFont("Vector", 26).setFontAlign(-1, -1).drawString(s.bpm > 0 ? Math.round(s.bpm) : "--", R.x + 28, by + 32);
-  g.setFont("Vector", s.dist >= 1000 ? 20 : 26).setFontAlign(1, -1).drawString(s.dist + "m", R.x2 - 4, by + 34);
+  // two bars: this shuttle (thick, to the next buzz), then this level
+  var by = R.y + 58;
+  bar(R.x + 4, by, R.x2 - 4, by + 10, f, cS);
+  bar(R.x + 4, by + 13, R.x2 - 4, by + 19, lf, cL);
+  g.setFont("6x8").setFontAlign(0, -1).drawString(s.m + "m  " + Math.max(0, s.left).toFixed(1) + "s", cx, by + 22);
+  // heart rate and target speed side by side, the same size
+  var ry = by + 32;
+  heart(R.x + 14, ry + 10, 8);
+  g.setFont("Vector", 26).setFontAlign(-1, -1).drawString(s.bpm > 0 ? Math.round(s.bpm) : "--", R.x + 28, ry);
+  g.setFontAlign(1, -1).drawString(s.speed.toFixed(1), R.x2 - 30, ry);
+  g.setFont("6x8").setFontAlign(1, 1).drawString("km/h", R.x2 - 4, ry + 22);
+  g.setFont("Vector", 20).setFontAlign(0, -1).drawString(s.dist + "m", cx, ry + 28);
   g.setFont("6x8").setFontAlign(-1, 1).drawString(fmtTime(s.t), R.x + 4, R.y2 - 2);
   if (s.gps) g.setFontAlign(1, 1).drawString("GPS " + (isNaN(s.gpsSpeed) ? "--" : s.gpsSpeed.toFixed(1)) + " km/h", R.x2 - 4, R.y2 - 2);
 }
@@ -173,6 +197,12 @@ function showMenu(stopAt) {
         format: function (v) { return COURSES[v] + "m"; },
         onchange: function (v) { settings.m = COURSES[v]; storage.writeJSON(SETTINGS, settings); }
       },
+      "Speeds": {
+        value: settings.p,
+        min: 0, max: bt.PROGS.length - 1,
+        format: function (v) { return bt.PROGS[v].join(", "); },
+        onchange: function (v) { settings.p = v; storage.writeJSON(SETTINGS, settings); }
+      },
       "GPS speed": {
         value: !!settings.gps,
         onchange: function (v) { settings.gps = v; storage.writeJSON(SETTINGS, settings); }
@@ -195,6 +225,7 @@ function showResult(res, back) {
   g.drawString(res.d + "m  " + fmtTime(res.dur), cx, R.y + 76);
   g.drawString("HR " + (res.avg || "--") + " / " + (res.max || "--"), cx, R.y + 100);
   g.setFont("6x8").drawString("avg / max bpm", cx, R.y + 118);
+  g.drawString(fmtSpeeds(res.p || 0) + " km/h", cx, R.y + 136);
 }
 
 function showHistory() {

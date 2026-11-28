@@ -14,7 +14,7 @@
 | `interface.html`, `beeplog.js` | (App Loader only) | The download page: turns a log into TCX or CSV. |
 
 Data on the watch: `beeptest.json` (past results), `beeptest.settings.json`
-(course, GPS), `beeptest.state.json` (the test in progress) and one
+(course, speeds, GPS), `beeptest.state.json` (the test in progress) and one
 `beeptest.<start time>.csv` StorageFile per test with a line a second.
 
 ## Installing development builds
@@ -67,10 +67,11 @@ while ago.
 
 | To test | Type |
 |---|---|
-| Level 2 starts (2 buzzes) in 10 s | `require("beeptest").start(20,{start:Date.now()-53000})` |
+| Level 2 starts (3 buzzes) in 10 s | `require("beeptest").start(20,{start:Date.now()-53000})` |
 | Level 8 starts in 10 s, 20m | `require("beeptest").start(20,{start:Date.now()-432000})` |
 | The end of level 21 (test complete) in 10 s | `require("beeptest").start(20,{start:Date.now()-1311000})` |
 | 15m course, with GPS speed | `require("beeptest").start(15,{gps:true})` |
+| 8.5, 9.5, 10.0... km/h speeds (`p` is 0, 1 or 2, as in the Speeds menu) | `require("beeptest").start(20,{p:2})` |
 
 `require("beeptest").cancel()` throws away a test started this way. Disconnect the Web IDE
 before a check that needs the watch on your wrist.
@@ -78,13 +79,14 @@ before a check that needs the watch on your wrist.
 1. **Install.** Beep Test is in the launcher with its icon. Opening it shows
    the course and "Tap to start". No widget on the clock while idle.
 2. **Start.** Press the button on the start screen: a menu opens and nothing
-   buzzes. Back out, then tap the screen: a 3 s countdown, two buzzes and the
+   buzzes. Back out, then tap the screen: a 3 s countdown, three buzzes and the
    test starts.
 3. **Cues.** With the watch on your wrist, the single shuttle buzz and the
-   double level buzz are easy to tell apart without looking.
+   triple level buzz are easy to tell apart without looking.
 4. **Long press.** During a test hold the button about 1.5 s: the watch goes
    to the clock, the widget shows `level.shuttle` and heart rate, and the buzzes
    carry on. Unlock the watch and tap the widget: the test screen comes back. A short press (under 1 s) opens the menu instead.
+   A swipe right on the test screen does the same as the long press.
 5. **Stop & save.** Press the button, wait a few seconds, choose Stop & save:
    the result is the last shuttle completed when you pressed the button.
 6. **Cancel test.** Asks first, then goes back to the start screen with no result.

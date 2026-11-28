@@ -2,7 +2,7 @@
   "id": "beeptest",
   "name": "Beep Test",
   "shortName": "Beep Test",
-  "version": "0.03",
+  "version": "0.04",
   "description": "Multistage fitness (beep / beep) test on a 20m or 15m course, with vibration cues, a clock widget while it runs, and heart rate logging you can export as TCX or CSV.",
   "icon": "app.png",
   "screenshots": [
