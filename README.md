@@ -8,7 +8,7 @@ Tap the screen to start (the button never starts a test). The watch buzzes once 
 the end of each shuttle and three times at each new level, and shows your level,
 shuttle, a green bar for the shuttle (to the next buzz) and a blue one for the level, your heart rate and the target speed in
 km/h side by side, and the distance so far.
-Press the button for a menu: before a test it has the course, GPS speed and past
+Press the button for a menu: before a test it has the course, speeds, GPS speed and past
 results; during a test **Back to test**, **Stop & save** and **Cancel test**.
 
 ## Install
@@ -23,7 +23,8 @@ merged) are in [docs/DEVELOPMENT.md](https://github.com/cbishopvelti/beep/blob/m
 
 1. Mark out two lines 20 m or 15 m apart.
 2. Open **Beep Test**. To change the course, press the button and pick **Course**
-   (20m or 15m; it is remembered). Tap the screen to start (or choose **Start test**
+   (20m or 15m), and **Speeds** for the speed progression (both are remembered; the
+   start screen shows them). Tap the screen to start (or choose **Start test**
    in the menu). You get a 3 second countdown (press the button to cancel).
 3. Run to the other line before each cue:
    * **1 buzz**: end of a shuttle, turn and go.
@@ -47,7 +48,7 @@ uses a lot of battery. The target speed for the level is always shown.
 
 | | Short press | Long press or swipe right |
 |---|---|---|
-| Before a test | Menu (start, course, GPS, results) | Back to the clock |
+| Before a test | Menu (start, course, speeds, GPS, results) | Back to the clock |
 | During a test | Menu (back to test, stop & save, cancel) | Back to the clock, **test keeps running** |
 
 Swipe right works on the app's own screens (start, countdown, running, result), not
@@ -65,9 +66,17 @@ button press may only wake it: press again for the menu.
 
 ## Courses and timings
 
-Both courses use the same speeds: level 1 is 8.0 km/h, level 2 is 9.0 km/h, then each
-level adds 0.5 km/h up to level 21 (18.5 km/h). Each level lasts about a minute, so the
-15 m course has more shuttles per level:
+**Speeds** in the menu picks one of three progressions. Each has 21 levels, and after
+level 2 every level adds 0.5 km/h:
+
+| Speeds | Levels 1, 2, 3... | Level 21 | |
+|---|---|---|---|
+| **8, 9** (default) | 8.0, 9.0, 9.5... km/h | 18.5 km/h | The standard beep test |
+| **8, 8.5** | 8.0, 8.5, 9.0... km/h | 18.0 km/h | Léger & Lambert's original 1982 test |
+| **8.5, 9.5** | 8.5, 9.5, 10.0... km/h | 19.0 km/h | |
+
+With the default speeds, both courses use the standard tables below. Each level lasts
+about a minute, so the 15 m course has more shuttles per level:
 
 | Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -76,6 +85,19 @@ level adds 0.5 km/h up to level 21 (18.5 km/h). Each level lasts about a minute,
 
 * **20 m** is the standard multistage fitness test (Léger / UK beep test).
 * **15 m** follows the FitnessGram 15 m PACER lap counts.
+
+With the other speeds, each level has the fewest shuttles that take over a minute, which
+is the rule the standard 20 m table follows:
+
+| Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 20 m, 8, 8.5 | 7 | 8 | 8 | 8 | 9 | 9 | 10 | 10 | 11 | 11 | 11 | 12 | 12 | 13 | 13 | 13 | 14 | 14 | 15 | 15 | 16 |
+| 15 m, 8, 8.5 | 9 | 10 | 11 | 11 | 12 | 12 | 13 | 13 | 14 | 14 | 15 | 16 | 16 | 17 | 17 | 18 | 18 | 19 | 19 | 20 | 21 |
+| 20 m, 8.5, 9.5 | 8 | 8 | 9 | 9 | 10 | 10 | 11 | 11 | 11 | 12 | 12 | 13 | 13 | 13 | 14 | 14 | 15 | 15 | 16 | 16 | 16 |
+| 15 m, 8.5, 9.5 | 10 | 11 | 12 | 12 | 13 | 13 | 14 | 14 | 15 | 16 | 16 | 17 | 17 | 18 | 18 | 19 | 19 | 20 | 21 | 21 | 22 |
+
+A result is `level.shuttle` within its own progression, so compare results run with the
+same speeds. The result screen shows which speeds a test used.
 
 Cue times are worked out from the test start time, so they do not drift, even when you
 switch apps. If the watch goes flat or restarts during a test, the test is saved as it

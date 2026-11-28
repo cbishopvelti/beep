@@ -38,7 +38,7 @@ test("button on the start screen opens the menu and never starts a test", async 
   await open(h);
   press(h, 150);
   assert.eq(h.eval("view"), "menu");
-  assert.eq(menuItems(h), ["Start test", "Course", "GPS speed", "Results", "Exit"]);
+  assert.eq(menuItems(h), ["Start test", "Course", "Speeds", "GPS speed", "Results", "Exit"]);
   assert(!h.eval(`${BT}.active()`));
   assert.eq(h.eval("MENU.Course.format(MENU.Course.value)"), "20m");
   assert.eq(h.eval("MENU.Course.max"), 1, "only 20m and 15m");
@@ -79,18 +79,24 @@ test("swipe right during a test goes to the clock, and the test keeps running", 
   assert(h.eval(`${BT}.active()`), "still running");
 });
 
-test("course and GPS choices are remembered and used", async h => {
+test("course, speeds and GPS choices are remembered and used", async h => {
   await open(h);
   press(h, 150);
-  h.tx('MENU.Course.onchange(1);MENU["GPS speed"].onchange(true)');
-  assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { m: 15, gps: true });
+  assert.eq(h.eval("MENU.Speeds.value"), 0, "standard speeds by default");
+  assert.eq(h.eval("[0,1,2].map(MENU.Speeds.format)"), ["8, 9", "8, 8.5", "8.5, 9.5"]);
+  h.tx('MENU.Course.onchange(1);MENU.Speeds.onchange(2);MENU["GPS speed"].onchange(true)');
+  assert.eq(h.eval('require("Storage").readJSON("beeptest.settings.json")'), { m: 15, p: 2, gps: true });
   await h.load("beeptest.app.js");
+  spyDraw(h);
+  h.tx("showReady()");
+  assert(h.eval("DRAWN").includes("8.5, 9.5, 10.0... km/h"), "start screen shows the speeds: " + h.eval("DRAWN"));
   spyMenu(h);
   h.tx("showMenu()");
   assert.eq(h.eval("MENU.Course.format(MENU.Course.value)"), "15m");
+  assert.eq(h.eval("MENU.Speeds.format(MENU.Speeds.value)"), "8.5, 9.5");
   h.tx('MENU["Start test"]()');
   await h.wait(3100);
-  assert.eq(h.eval(`[${BT}.status().m,${BT}.status().gps]`), [15, true]);
+  assert.eq(h.eval(`[${BT}.status().m,${BT}.status().gps,${BT}.status().p,${BT}.status().speed]`), [15, true, 2, 8.5]);
   assert.eq(h.eval("GPS_USERS"), { beeptest: 1 });
 });
 

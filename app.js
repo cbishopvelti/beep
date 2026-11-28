@@ -15,6 +15,7 @@ var COURSES = [20, 15];
 
 var settings = storage.readJSON(SETTINGS, 1) || {};
 if (COURSES.indexOf(settings.m) < 0) settings.m = 20;
+if (!bt.PROGS[settings.p]) settings.p = 0;
 
 var view;      // "ready", "countdown", "run", "result", "menu"
 var timers = {};
@@ -22,6 +23,11 @@ var timers = {};
 function clearTimers() {
   for (var k in timers) { clearTimeout(timers[k]); clearInterval(timers[k]); }
   timers = {};
+}
+
+// A speed progression as its first speeds, e.g. "8.0, 9.0, 9.5..."
+function fmtSpeeds(p) {
+  return [1, 2, 3].map(function (l) { return bt.speed(l, p).toFixed(1); }).join(", ") + "...";
 }
 
 function fmtTime(s) {
@@ -70,8 +76,9 @@ function showReady() {
   setScreen("ready", { touch: startCountdown });
   var R = Bangle.appRect, cx = R.x + R.w / 2;
   g.setFontAlign(0, -1).setFont("6x8", 2).drawString("Beep Test", cx, R.y + 4);
-  g.setFont("Vector", 40).drawString(settings.m + "m", cx, R.y + 26);
-  g.setFont("6x8", 2).drawString("Tap to start", cx, R.y + 76);
+  g.setFont("Vector", 40).drawString(settings.m + "m", cx, R.y + 24);
+  g.setFont("6x8").drawString(fmtSpeeds(settings.p) + " km/h", cx, R.y + 64);
+  g.setFont("6x8", 2).drawString("Tap to start", cx, R.y + 80);
   var last = (storage.readJSON(HISTORY, 1) || [])[0];
   g.setFont("6x8");
   if (last) g.drawString("Last: " + last.l + "." + last.s + " (" + (last.m || 20) + "m)", cx, R.y + 104);
@@ -89,7 +96,7 @@ function startCountdown() {
     g.setFontAlign(0, 0).setFont("6x8", 2).drawString("Get ready " + settings.m + "m", cx, R.y + 20);
     g.setFont("Vector", 60).drawString(n, cx, R.y + R.h / 2 + 5);
     if (n <= 0) {
-      bt.start(settings.m, { gps: settings.gps });
+      bt.start(settings.m, { gps: settings.gps, p: settings.p });
       Bangle.setHRMPower(0, "beeptest.app");
       showRun();
       return;
@@ -190,6 +197,12 @@ function showMenu(stopAt) {
         format: function (v) { return COURSES[v] + "m"; },
         onchange: function (v) { settings.m = COURSES[v]; storage.writeJSON(SETTINGS, settings); }
       },
+      "Speeds": {
+        value: settings.p,
+        min: 0, max: bt.PROGS.length - 1,
+        format: function (v) { return bt.PROGS[v].join(", "); },
+        onchange: function (v) { settings.p = v; storage.writeJSON(SETTINGS, settings); }
+      },
       "GPS speed": {
         value: !!settings.gps,
         onchange: function (v) { settings.gps = v; storage.writeJSON(SETTINGS, settings); }
@@ -212,6 +225,7 @@ function showResult(res, back) {
   g.drawString(res.d + "m  " + fmtTime(res.dur), cx, R.y + 76);
   g.drawString("HR " + (res.avg || "--") + " / " + (res.max || "--"), cx, R.y + 100);
   g.setFont("6x8").drawString("avg / max bpm", cx, R.y + 118);
+  g.drawString(fmtSpeeds(res.p || 0) + " km/h", cx, R.y + 136);
 }
 
 function showHistory() {

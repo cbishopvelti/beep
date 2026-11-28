@@ -8,25 +8,46 @@ var STATE = "beeptest.state.json";
 var HISTORY = "beeptest.json";
 
 /*TABLES_START*/
-// Speeds are the same for every course length: 8.0, 9.0, then +0.5 km/h per level.
+// Speed progressions (km/h at level 1, then level 2; +0.5 a level after that):
+//   0: 8.0, 9.0, 9.5... the standard 20m beep test (UK/Ramsbottom, FitnessGram PACER)
+//   1: 8.0, 8.5, 9.0... Leger & Lambert's original (1982)
+//   2: 8.5, 9.5, 10.0...
 // Each level lasts about a minute, so shorter courses need more shuttles per level.
+var PROGS = [[8, 9], [8, 8.5], [8.5, 9.5]];
+var LEVELS = 21;
+// Shuttles per level for progression 0; the others are worked out from the speeds
 var TESTS = {
   // Standard 20m multistage fitness test (Leger / UK beep test)
   20: [7,8,8,9,9,10,10,11,11,11,12,12,13,13,13,14,14,15,15,16,16],
   // 15m version, FitnessGram 15m PACER lap counts
   15: [9,10,11,12,12,13,13,14,14,15,15,16,17,17,18,18,19,19,20,20,21]
 };
-function speed(l) { return l == 1 ? 8 : 8 + 0.5 * l; } // km/h
-function shuttleTime(m, l) { return m * 3.6 / speed(l); } // seconds
-function shuttles(m) { return TESTS[m] || TESTS[20]; }
+function speed(l, p) { // km/h at level l of progression p
+  var s = PROGS[p] || PROGS[0];
+  return l == 1 ? s[0] : s[1] + 0.5 * (l - 2);
+}
+function shuttleTime(m, l, p) { return m * 3.6 / speed(l, p); } // seconds
+// Shuttles per level. For the other progressions: the fewest that make a level
+// last over a minute (the rule the standard 20m table follows).
+var made = {};
+function shuttles(m, p) {
+  if (!TESTS[m]) m = 20;
+  if (!PROGS[p] || !p) return TESTS[m];
+  var k = m + "/" + p;
+  if (!made[k]) {
+    made[k] = [];
+    for (var l = 1; l <= LEVELS; l++) made[k].push(Math.floor(60 / shuttleTime(m, l, p)) + 1);
+  }
+  return made[k];
+}
 
 // Where the test is t seconds after the start.
 // level/shuttle: current level and shuttles completed in it; total: shuttles completed;
 // shuttleStart/nextAt: start and end (s) of the shuttle being run now.
-function position(m, t) {
-  var tab = shuttles(m), at = 0, total = 0;
+function position(m, t, pr) {
+  var tab = shuttles(m, pr), at = 0, total = 0;
   for (var l = 1; l <= tab.length; l++) {
-    var d = shuttleTime(m, l);
+    var d = shuttleTime(m, l, pr);
     for (var s = 0; s < tab[l - 1]; s++) {
       if (at + d > t) return { level: l, shuttle: s, total: total, shuttleStart: at, nextAt: at + d, done: false };
       at += d;
@@ -37,8 +58,8 @@ function position(m, t) {
 }
 
 // The result is the last fully completed shuttle
-function result(m, p) {
-  var tab = shuttles(m);
+function result(m, p, pr) {
+  var tab = shuttles(m, pr);
   if (p.done) return { l: tab.length, s: tab[tab.length - 1] };
   if (p.shuttle > 0) return { l: p.level, s: p.shuttle };
   if (p.level > 1) return { l: p.level - 1, s: tab[p.level - 2] };
@@ -106,7 +127,7 @@ function logTick() {
     st.hrSum += hr.bpm; st.hrN++;
     if (hr.bpm > st.hrMax) st.hrMax = hr.bpm;
   }
-  writeSample(t, position(st.m, t));
+  writeSample(t, position(st.m, t, st.p));
 }
 
 // The phone (Gadgetbridge) and the App Loader set the watch's clock with
@@ -132,11 +153,11 @@ function updateWidget() {
 
 // Schedule the next beep. Called on start, on resume and after each beep.
 function schedule() {
-  var p = position(st.m, now() + 0.05);
+  var p = position(st.m, now() + 0.05, st.p);
   if (p.done) { stop(true); return; }
   tBeep = setTimeout(function () {
     tBeep = undefined;
-    var q = position(st.m, p.nextAt + 0.001);
+    var q = position(st.m, p.nextAt + 0.001, st.p);
     if (q.done) { stop(true); return; }
     if (q.shuttle == 0) {
       // exact sample on the level boundary so exported laps line up
@@ -179,6 +200,7 @@ function halt() {
 }
 
 // Start a test on an m metre course. opts.gps: also record GPS speed/position.
+// opts.p: the speed progression (an index into PROGS, default 0).
 // opts.start: start time (ms, as Date.now()), to begin partway through a test
 // when testing on the watch, e.g. start(20, {start: Date.now() - 400000})
 exports.start = function (m, opts) {
@@ -186,10 +208,10 @@ exports.start = function (m, opts) {
   opts = opts || {};
   m = TESTS[m] ? m : 20;
   var start = opts.start ? opts.start / 1000 : getTime();
-  st = { start: start, m: m, file: "beeptest." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0, gps: !!opts.gps };
+  st = { start: start, m: m, file: "beeptest." + Math.floor(start) + ".csv", hrSum: 0, hrN: 0, hrMax: 0, gps: !!opts.gps, p: PROGS[opts.p] ? opts.p : 0 };
   S.writeJSON(STATE, st);
   log = S.open(st.file, "w");
-  write("start," + Math.round(start * 1000) + "," + new Date().getTimezoneOffset() + "," + m + "\n");
+  write("start," + Math.round(start * 1000) + "," + new Date().getTimezoneOffset() + "," + m + "," + st.p + "\n");
   cueLevel();
   run();
   logTick();
@@ -204,7 +226,7 @@ exports.resume = function () {
   // An app change saves the time it happened (on "kill"). Without a recent
   // one, the watch was off or crashed: see when the log stopped.
   if (!(t - st.alive < GAP)) last = lastLogTime(st.file);
-  if (t - last > GAP || position(st.m, t).done) {
+  if (t - last > GAP || position(st.m, t, st.p).done) {
     // nothing ran it for a while, or it would have ended: close it off
     log = S.open(st.file, "a");
     if (t - last > GAP) stop(false, last);
@@ -234,12 +256,12 @@ function stop(completed, at) {
   if (!st) return;
   halt();
   var t = at !== undefined ? at : now();
-  var p = position(st.m, t);
-  if (completed) { p = position(st.m, 1e9); t = p.nextAt; }
+  var p = position(st.m, t, st.p);
+  if (completed) { p = position(st.m, 1e9, st.p); t = p.nextAt; }
   writeSample(t, p);
-  var r = result(st.m, p);
+  var r = result(st.m, p, st.p);
   var res = {
-    t: Math.round(st.start * 1000), m: st.m, l: r.l, s: r.s,
+    t: Math.round(st.start * 1000), m: st.m, p: st.p || 0, l: r.l, s: r.s,
     d: p.total * st.m, dur: Math.round(t),
     max: st.hrMax, avg: st.hrN ? Math.round(st.hrSum / st.hrN) : 0, f: st.file
   };
@@ -275,10 +297,10 @@ exports.active = function () { return !!st; };
 // Live status for the app and widget
 exports.status = function () {
   if (!st) return;
-  var t = now(), p = position(st.m, t);
+  var t = now(), p = position(st.m, t, st.p);
   return {
-    m: st.m, t: t, level: p.level, shuttle: p.shuttle, shuttles: shuttles(st.m)[p.level - 1],
-    total: p.total, dist: p.total * st.m, speed: speed(p.level),
+    m: st.m, t: t, level: p.level, shuttle: p.shuttle, shuttles: shuttles(st.m, st.p)[p.level - 1], p: st.p || 0,
+    total: p.total, dist: p.total * st.m, speed: speed(p.level, st.p),
     left: p.nextAt - t, dur: p.nextAt - p.shuttleStart, bpm: hr.bpm,
     gps: st.gps, gpsSpeed: gps.speed
   };
@@ -289,6 +311,8 @@ exports.position = position;
 exports.result = result;
 exports.speed = speed;
 exports.shuttleTime = shuttleTime;
+exports.shuttles = shuttles;
+exports.PROGS = PROGS;
 
 // keep the heart rate stats when the running app is replaced
 E.on("kill", function () {

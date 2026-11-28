@@ -14,7 +14,7 @@
 | `interface.html`, `beeplog.js` | (App Loader only) | The download page: turns a log into TCX or CSV. |
 
 Data on the watch: `beeptest.json` (past results), `beeptest.settings.json`
-(course, GPS), `beeptest.state.json` (the test in progress) and one
+(course, speeds, GPS), `beeptest.state.json` (the test in progress) and one
 `beeptest.<start time>.csv` StorageFile per test with a line a second.
 
 ## Installing development builds
@@ -71,6 +71,7 @@ while ago.
 | Level 8 starts in 10 s, 20m | `require("beeptest").start(20,{start:Date.now()-432000})` |
 | The end of level 21 (test complete) in 10 s | `require("beeptest").start(20,{start:Date.now()-1311000})` |
 | 15m course, with GPS speed | `require("beeptest").start(15,{gps:true})` |
+| 8.5, 9.5, 10.0... km/h speeds (`p` is 0, 1 or 2, as in the Speeds menu) | `require("beeptest").start(20,{p:2})` |
 
 `require("beeptest").cancel()` throws away a test started this way. Disconnect the Web IDE
 before a check that needs the watch on your wrist.

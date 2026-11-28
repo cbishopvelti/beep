@@ -19,6 +19,32 @@ test("tables: 8.0 then 9.0 km/h, +0.5 a level, about a minute each", async h => 
     }
 });
 
+test("other speed progressions: 8.0, 8.5, 9.0... and 8.5, 9.5, 10.0..., levels over a minute", async h => {
+  const sp = p => h.eval(`[1,2,3,21].map(function(l){return ${BT}.speed(l,${p})})`);
+  assert.eq(sp(1), [8, 8.5, 9, 18]);
+  assert.eq(sp(2), [8.5, 9.5, 10, 19]);
+  assert.eq(h.eval(`${BT}.shuttles(20,0)`), h.eval(`${BT}.TESTS[20]`), "standard table kept");
+  for (const p of [1, 2])
+    for (const m of [20, 15]) {
+      assert.eq(h.eval(`${BT}.shuttles(${m},${p}).length`), 21);
+      for (let l = 1; l <= 21; l++) {
+        const d = timeAt(h, m, l + 1, 0, p) - timeAt(h, m, l, 0, p);
+        assert(d > 60 && d < 68, `${m}m progression ${p} level ${l} lasts ${d}s`);
+      }
+    }
+});
+
+test("a test keeps its progression: status, resume and the saved result", async h => {
+  startAgo(h, 20, timeAt(h, 20, 3, 2, 1) + 1, { p: 1 });
+  let s = h.eval(`${BT}.status()`);
+  assert.eq([s.level, s.shuttle, s.p, s.speed], [3, 2, 1, 9]);
+  await h.load(); // the clock: the boot file resumes it
+  s = h.eval(`${BT}.status()`);
+  assert.eq([s.level, s.shuttle, s.p], [3, 2, 1]);
+  const res = h.eval(`${BT}.stop(false)`);
+  assert.eq([res.p, res.l, res.s], [1, 3, 2]);
+});
+
 test("start: state saved, HR log started, HRM on, 3 buzzes", async h => {
   spyBuzz(h);
   h.tx(`${BT}.start(20)`);
@@ -30,7 +56,7 @@ test("start: state saved, HR log started, HRM on, 3 buzzes", async h => {
   assert.eq(h.eval("GPS_USERS"), {}, "no GPS unless asked");
   assert.eq(h.eval("BUZZ.length"), 3);
   const log = readFile(h, st.file).split("\n");
-  assert(/^start,\d+,-?\d+,20$/.test(log[0]), log[0]);
+  assert(/^start,\d+,-?\d+,20,0$/.test(log[0]), log[0]);
   assert(log.length >= 3, "samples once a second");
 });
 
