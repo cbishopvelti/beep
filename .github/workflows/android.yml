@@ -11,11 +11,19 @@ on:
     paths:
       - android/**
       - tests/fixtures/**
+      # The port of beeplog.js and lib.js's tables (src/beeplog.rs,
+      # src/tables.rs) is tested against them.
+      - beeplog.js
+      - lib.js
       - .github/workflows/android.yml
   pull_request:
     paths:
       - android/**
       - tests/fixtures/**
+      # The port of beeplog.js and lib.js's tables (src/beeplog.rs,
+      # src/tables.rs) is tested against them.
+      - beeplog.js
+      - lib.js
       - .github/workflows/android.yml
 permissions:
   contents: read

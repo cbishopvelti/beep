@@ -34,6 +34,11 @@ pub(crate) struct Sent {
     pub gps: Option<bool>,
     pub p: Option<u32>,
     pub at: Instant,
+    /// When the watch was last heard from as it was sent
+    /// (`WatchState::heard`), if something sent is what the watch had then
+    /// (a change taken back before it answered): what it says then isn't
+    /// the answer, only a `state` heard since is.
+    pub after: Option<Option<i64>>,
 }
 
 impl Sent {
@@ -42,6 +47,7 @@ impl Sent {
         self.m.is_none_or(|m| watch.m == Some(m))
             && self.gps.is_none_or(|g| watch.gps == Some(g))
             && self.p.is_none_or(|p| watch.p == Some(p))
+            && self.after.is_none_or(|heard| watch.heard > heard)
     }
 
     /// What's being sent, for "Sending ... to the watch...".
@@ -75,12 +81,15 @@ pub(crate) struct State {
 }
 
 impl State {
-    /// Sends a change of the watch's settings (unless it's what the watch
-    /// already has).
+    /// Sends a change of the watch's settings, unless it's what the watch
+    /// will have already: what was sent and not yet answered, or else what
+    /// the watch has. So a tap back to the watch's own value while another
+    /// is on its way goes too, and replaces it.
     pub fn send(&mut self, watch: &WatchState, m: Option<u32>, gps: Option<bool>, p: Option<u32>) {
-        let m = m.filter(|m| watch.m != Some(*m));
-        let gps = gps.filter(|g| watch.gps != Some(*g));
-        let p = p.filter(|p| watch.p != Some(*p));
+        let sent = self.sent.as_ref();
+        let m = m.filter(|m| sent.and_then(|s| s.m).or(watch.m) != Some(*m));
+        let gps = gps.filter(|g| sent.and_then(|s| s.gps).or(watch.gps) != Some(*g));
+        let p = p.filter(|p| sent.and_then(|s| s.p).or(watch.p) != Some(*p));
         if m.is_none() && gps.is_none() && p.is_none() {
             return;
         }
@@ -90,11 +99,15 @@ impl State {
             Some(s) => (m.or(s.m), gps.or(s.gps), p.or(s.p)),
             None => (m, gps, p),
         };
+        let back = (m.is_some() && m == watch.m)
+            || (gps.is_some() && gps == watch.gps)
+            || (p.is_some() && p == watch.p);
         self.sent = Some(Sent {
             m,
             gps,
             p,
             at: Instant::now(),
+            after: back.then_some(watch.heard),
         });
         self.unanswered = false;
     }
@@ -135,6 +148,25 @@ pub(crate) fn connection(direct: bool, link: Status, progress: &Progress) -> (Do
     }
 }
 
+/// What the page says when the watch didn't answer: what to check. A
+/// watch app older than 0.05 has nothing that answers (it only logs the
+/// phone's line), so that's said too, with where to get a newer one.
+pub(crate) fn no_answer_words(direct: bool) -> String {
+    let check = if direct {
+        "Check it's near"
+    } else {
+        "Check it's connected in Gadgetbridge, with \"Allow Intents\" on in Gadgetbridge's \
+         settings for the Bangle.js"
+    };
+    format!("The watch didn't answer. {check}, and that it has Beep Test {NEEDS} or later. {OLDER}")
+}
+
+/// The first watch app version that syncs.
+pub(crate) const NEEDS: &str = "0.05";
+/// What an older watch app does, and where a newer one is.
+pub(crate) const OLDER: &str = "Older versions don't sync: install a newer one from \
+                                cbishopvelti.github.io/beep (the Bangle.js App Loader).";
+
 /// Draws the page.
 pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
     let now = health::now_s();
@@ -169,14 +201,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
                     status::fact(ui, "Link", "Through Gadgetbridge");
                 }
                 if progress == Progress::NoAnswer {
-                    ui.label(if direct {
-                        "The watch didn't answer. Check Beep Test is installed on it, and that \
-                     it's near."
-                    } else {
-                        "The watch didn't answer. Check it's connected in Gadgetbridge, with \
-                     \"Allow Intents\" on in Gadgetbridge's settings for the Bangle.js, and \
-                     that Beep Test is installed on it."
-                    });
+                    ui.label(no_answer_words(direct));
                 }
             },
         );
@@ -221,7 +246,7 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.label(
                 RichText::new(
                     "The watch says which version it has each time it syncs. Update it \
-                     from the Bangle.js App Loader.",
+                     from cbishopvelti.github.io/beep (the Bangle.js App Loader).",
                 )
                 .small()
                 .weak(),
@@ -307,7 +332,14 @@ fn settings_card(app: &mut App, ui: &mut egui::Ui, watch: &WatchState) {
                 .weak(),
             );
         }
-        let mut on = watch.gps.unwrap_or(false);
+        // The switch shows a change on its way (a switch that sprang back
+        // would send the same again when tapped); the course and speeds
+        // show the watch's, with the one on its way marked.
+        let mut on = sent
+            .as_ref()
+            .and_then(|s| s.gps)
+            .or(watch.gps)
+            .unwrap_or(false);
         if toggle::show(ui, &mut on, "Record GPS speed").changed() {
             gps = Some(on);
         }
@@ -375,6 +407,7 @@ mod tests {
                 gps: None,
                 p: None,
                 at,
+                after: None,
             }),
             unanswered: false,
         };
@@ -396,6 +429,7 @@ mod tests {
                 gps: Some(true),
                 p: None,
                 at,
+                after: None,
             }),
             unanswered: false,
         };
@@ -418,6 +452,46 @@ mod tests {
     }
 
     #[test]
+    fn a_change_on_its_way_can_be_changed_back() {
+        // The watch is on 20 m; 15 m is sent, then 20 m before it answers:
+        // 20 m goes too, and is what the page waits for.
+        let w = watch(20, false);
+        let mut s = State::default();
+        s.send(&w, Some(15), None, None);
+        assert_eq!(s.sent.as_ref().unwrap().m, Some(15));
+        s.send(&w, Some(20), None, None);
+        assert_eq!(s.sent.as_ref().unwrap().m, Some(20));
+        // What the watch said before isn't the answer, though it says 20.
+        s.settle(&w, Instant::now());
+        assert!(s.sent.is_some());
+        // The watch answers the first (15): still waiting for 20.
+        let heard = |m, s| WatchState {
+            heard: Some(s),
+            ..watch(m, false)
+        };
+        s.settle(&heard(15, 100), Instant::now());
+        assert!(s.sent.is_some());
+        s.settle(&heard(20, 101), Instant::now());
+        assert_eq!(s.sent, None);
+        // GPS on, then off again before the answer: off goes.
+        s.send(&w, None, Some(true), None);
+        s.send(&w, None, Some(false), None);
+        let sent = s.sent.clone().unwrap();
+        assert_eq!(sent.gps, Some(false));
+        assert_eq!(sent.words(), "GPS speed off");
+        // The same again as what's on its way: nothing more.
+        let at = sent.at;
+        s.send(&w, None, Some(false), None);
+        assert_eq!(s.sent.as_ref().unwrap().at, at);
+        // The speeds, the same way.
+        let w = WatchState { p: Some(0), ..w };
+        let mut s = State::default();
+        s.send(&w, None, None, Some(2));
+        s.send(&w, None, None, Some(0));
+        assert_eq!(s.sent.as_ref().unwrap().p, Some(0));
+    }
+
+    #[test]
     fn speeds_wait_for_the_watch_too() {
         let at = Instant::now();
         let sent = Sent {
@@ -425,6 +499,7 @@ mod tests {
             gps: None,
             p: Some(2),
             at,
+            after: None,
         };
         assert_eq!(sent.words(), "the speeds 8.5, 9.5");
         let mut s = State {
@@ -444,6 +519,16 @@ mod tests {
             (0..3).map(speeds_choice).collect::<Vec<_>>(),
             ["8, 9", "8, 8.5", "8.5, 9.5"]
         );
+    }
+
+    #[test]
+    fn no_answer_says_which_watch_app_is_needed_and_where_it_is() {
+        for direct in [false, true] {
+            let words = no_answer_words(direct);
+            assert!(words.contains("Beep Test 0.05 or later"), "{words}");
+            assert!(words.contains("cbishopvelti.github.io/beep"), "{words}");
+            assert!(words.contains("Gadgetbridge") != direct, "{words}");
+        }
     }
 
     #[test]

@@ -17,6 +17,9 @@ or Edge, press **Connect**, pick the watch and press the install button on Beep 
 It's the normal Bangle.js App Loader with only Beep Test on it, rebuilt from main on
 every push. Other ways to install (including trying a pull request before it's
 merged) are in [docs/DEVELOPMENT.md](https://github.com/cbishopvelti/beep/blob/main/docs/DEVELOPMENT.md).
+The watch takes one connection at a time: if a phone is connected to it, the watch doesn't
+show under **Connect** (disconnect it in Gadgetbridge, or turn off the
+[phone app](#phone-app-android)'s direct link, first).
 
 ## Usage
 
@@ -151,10 +154,16 @@ GitHub). It's a zip with `beep-android.apk` in it.
    opened; after that the watch can reach it even when it's closed.
 
 **Directly, without Gadgetbridge**: in the app's **Settings**, turn on **Connect to the watch
-directly, without Gadgetbridge**, allow "Nearby devices" (location on Android 11 and earlier),
-and pick the watch from the list. The watch takes one phone connection at a time, so disconnect
-it in Gadgetbridge first. While it's connected the app shows a quiet notification, which keeps
-it connected when the app is closed.
+directly, without Gadgetbridge**, allow "Nearby devices" (location on Android 11 and earlier,
+which also need the phone's Location switched on to find the watch), and pick the watch from
+the list. The watch takes one phone connection at a time, so disconnect it in Gadgetbridge
+first. While the switch is on the app shows a quiet notification, which keeps the watch
+connected when the app is closed, and after the phone restarts.
+
+The watch takes one connection at a time from a computer too. To connect the App Loader or
+the Web IDE to it (to install a new version, or download exports), turn the switch off first,
+or the phone's Bluetooth, and on again afterwards: while it's on, the phone takes the watch
+back as soon as it's free.
 
 ### What syncs and when
 
@@ -167,8 +176,9 @@ watch nothing is copied, so the cues are never delayed: the sync carries on when
 ends.
 
 A result deleted on the phone (it asks first; there's no undo) is deleted on the watch
-straight away if it's connected, or else at the next sync. A result deleted on the watch (its **Results** menu, or the App Loader's download
-page) is deleted on the phone the next time they sync. A result the watch drops to make room
+straight away if it's connected, or else at the next sync, which is as soon as the watch is
+back in touch (even with the app closed). A result deleted on the watch (its **Results**
+menu, or the App Loader's download page) is deleted on the phone the next time they sync. A result the watch drops to make room
 for newer ones stays on the phone.
 
 ## More

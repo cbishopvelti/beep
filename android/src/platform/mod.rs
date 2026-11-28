@@ -158,13 +158,14 @@ pub const HAS_BLUETOOTH: bool = cfg!(target_os = "android");
 
 #[cfg(target_os = "android")]
 pub use android::{
-    density, keep_watch, leave, light_bars, nav_bar_px, send_line, share_file, status_bar_px,
-    system_dark,
+    density, font_scale, keep_watch, leave, light_bars, nav_bar_px, send_line, share_file,
+    status_bar_px, system_dark,
 };
 
 #[cfg(target_os = "android")]
 pub use android::ble::{
-    allowed as bluetooth_allowed, request_permission as request_bluetooth, scan as scan_watches,
+    allowed as bluetooth_allowed, location_off, request_permission as request_bluetooth,
+    scan as scan_watches,
 };
 
 /// Sends the watch a line (Android: through Gadgetbridge, or the direct
@@ -208,6 +209,14 @@ pub fn scan_watches(_on: bool) {}
 #[cfg(not(target_os = "android"))]
 pub fn bluetooth_allowed() -> bool {
     std::env::var("BEEP_BLUETOOTH").as_deref() != Ok("off")
+}
+
+/// Whether the phone's Location is off where scanning for watches needs it
+/// on (Android 11 and earlier). `BEEP_LOCATION=off` pretends so on the
+/// desktop.
+#[cfg(not(target_os = "android"))]
+pub fn location_off() -> bool {
+    std::env::var("BEEP_LOCATION").as_deref() == Ok("off")
 }
 
 /// Asks for "Nearby devices" (Android only).
@@ -260,4 +269,12 @@ pub fn nav_bar_px() -> f32 {
 #[cfg(not(target_os = "android"))]
 pub fn density() -> Option<f32> {
     None
+}
+
+/// The phone's font size setting, as a factor (Android's
+/// `Configuration.fontScale`); `BEEP_FONT_SCALE` on the desktop, else
+/// none.
+#[cfg(not(target_os = "android"))]
+pub fn font_scale() -> Option<f32> {
+    std::env::var("BEEP_FONT_SCALE").ok()?.parse().ok()
 }

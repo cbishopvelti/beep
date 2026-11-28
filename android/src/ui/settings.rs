@@ -183,11 +183,38 @@ fn button(ui: &mut egui::Ui, text: &str) -> bool {
 
 fn color(ui: &egui::Ui, status: Status) -> Color32 {
     match status {
-        Status::Connected => super::GREEN,
+        Status::Connected => super::status::green_text(ui),
         Status::Connecting | Status::SettingUp | Status::NoWatch | Status::Off => {
             super::status::amber_text(ui)
         }
         _ => super::RED,
+    }
+}
+
+/// What the picker says under the watches it found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Hint {
+    /// Android 11 and earlier with Location off: a scan finds nothing.
+    LocationOff(&'static str),
+    /// Nothing found for a while.
+    NoneFound(&'static str),
+}
+
+/// The picker's hint, with the phone's Location off (where scanning needs
+/// it), nothing found yet, and `looking` this long: Location first, since
+/// nothing shows without it, and the other hint wouldn't help.
+pub(crate) fn picker_hint(location_off: bool, none_found: bool, looking: Duration) -> Option<Hint> {
+    if location_off {
+        Some(Hint::LocationOff(
+            "Turn on Location: Android 11 and earlier only find Bluetooth watches with it on.",
+        ))
+    } else if none_found && looking > Duration::from_secs(6) {
+        Some(Hint::NoneFound(
+            "A watch only shows here while no phone is connected to it: disconnect it in \
+             Gadgetbridge first, and keep it near.",
+        ))
+    } else {
+        None
     }
 }
 
@@ -237,15 +264,18 @@ pub(super) fn picker(app: &mut App, ctx: &egui::Context) {
                 super::spinner(ui);
                 ui.label(RichText::new("Looking for watches...").weak());
             });
-            if found.is_empty() && since.elapsed() > Duration::from_secs(6) {
-                ui.label(
-                    RichText::new(
-                        "A watch only shows here while no phone is connected to it: \
-                         disconnect it in Gadgetbridge first, and keep it near.",
-                    )
-                    .weak()
-                    .small(),
-                );
+            match picker_hint(platform::location_off(), found.is_empty(), since.elapsed()) {
+                Some(Hint::LocationOff(words)) => {
+                    ui.label(
+                        RichText::new(words)
+                            .small()
+                            .color(super::status::amber_text(ui)),
+                    );
+                }
+                Some(Hint::NoneFound(words)) => {
+                    ui.label(RichText::new(words).weak().small());
+                }
+                None => {}
             }
         }
         dialog::actions(ui, |ui| {
@@ -273,6 +303,23 @@ pub(super) fn picker(app: &mut App, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_picker_says_to_turn_location_on_before_blaming_gadgetbridge() {
+        let s = Duration::from_secs;
+        assert_eq!(picker_hint(false, true, s(2)), None);
+        assert!(matches!(
+            picker_hint(false, true, s(7)),
+            Some(Hint::NoneFound(w)) if w.contains("Gadgetbridge")
+        ));
+        assert_eq!(picker_hint(false, false, s(60)), None);
+        for (none, looking) in [(true, 0), (true, 60), (false, 60)] {
+            assert!(matches!(
+                picker_hint(true, none, s(looking)),
+                Some(Hint::LocationOff(w)) if w.starts_with("Turn on Location")
+            ));
+        }
+    }
 
     #[test]
     fn the_theme_is_kept_and_applied() {

@@ -548,6 +548,29 @@ pub fn density() -> Option<f32> {
     out
 }
 
+/// The phone's font size setting (`Configuration.fontScale`: 1 normally,
+/// up to 2 at its largest).
+pub fn font_scale() -> Option<f32> {
+    let mut out = None;
+    with_env(
+        |env, ctx| {
+            let res = resources(env, ctx)?;
+            let config = env
+                .call_method(
+                    &res,
+                    "getConfiguration",
+                    "()Landroid/content/res/Configuration;",
+                    &[],
+                )?
+                .l()?;
+            out = Some(env.get_field(&config, "fontScale", "F")?.f()?);
+            Ok(())
+        },
+        "font scale",
+    );
+    out
+}
+
 // --- Notifications ---------------------------------------------------------
 
 /// A notification channel: its id, the name in the phone's settings, and

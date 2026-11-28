@@ -754,14 +754,24 @@ pub fn level_rows(log: &Log, min_confidence: f64) -> Vec<LevelRow> {
         .collect()
 }
 
+/// The longest a test can sensibly run, seconds: the chart's time axis
+/// stops here. Level 21 of the slowest speeds ends well inside it.
+pub const LONGEST_TEST_S: f64 = 6.0 * 3600.0;
+/// The highest heart rate the chart takes, bpm.
+pub const HIGHEST_BPM: f64 = 300.0;
+
 /// The heart rate over the test, for the chart: `(seconds since the start,
 /// bpm)` for every sample with bpm above 0 and confidence at least
-/// `min_confidence`, in time order.
+/// `min_confidence`, in time order. Only readings a test can have: a time
+/// from 0 to [`LONGEST_TEST_S`] and a bpm up to [`HIGHEST_BPM`]. A log is
+/// anything a broadcast brought (`parse` takes `Infinity` and `1e12`), and
+/// the chart's axes are worked out from these.
 pub fn hr_series(log: &Log, min_confidence: f64) -> Vec<(f64, f64)> {
     let min_conf = or(min_confidence, 0.0);
     log.samples
         .iter()
         .filter(|s| hr_in(s, min_conf))
+        .filter(|s| (0.0..=LONGEST_TEST_S).contains(&s.t) && s.bpm <= HIGHEST_BPM)
         .map(|s| (s.t, s.bpm))
         .collect()
 }
@@ -998,5 +1008,17 @@ mod tests {
             "start,0,0,20\n0,100,90,1,0,0,9.0,51.5,-0.1\n1,100,90,1,0,2,,,\n2,100,90,1,0,4,11.0,51.5,-0.1\n",
         );
         assert_eq!(level_rows(&gps, 0.0)[0].gps_kmh, Some(10.0));
+    }
+
+    #[test]
+    fn the_heart_rate_leaves_out_readings_no_test_has() {
+        // Numbers a forged or corrupt log can carry: parse takes them all.
+        let log = parse(
+            "start,0,0,20\n0,90,90,1,0,0\n1,Infinity,90,1,0,0\n2,301,90,1,0,0\n\
+             -1,95,90,1,0,0\n1000000000000.0,120,90,1,1,20.0\nInfinity,99,90,1,1,20\n\
+             3,NaN,90,1,1,20\n21600,150,90,1,1,20\n",
+        );
+        assert_eq!(log.samples.len(), 8);
+        assert_eq!(hr_series(&log, 0.0), vec![(0.0, 90.0), (21600.0, 150.0)]);
     }
 }

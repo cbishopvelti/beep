@@ -76,6 +76,13 @@ struct Link {
     connected: bool,
     /// The scan's callback, while Settings looks for watches.
     scan: Option<GlobalRef>,
+    /// The scan's callback while the link looks for the watch it waits for
+    /// ([`watch_ble::Reach::DeviceAndScan`]).
+    seek: Option<GlobalRef>,
+    /// Whether a scan saw the watch, or the link connected to it, since
+    /// Bluetooth last came on (as far as the link can tell): then Android
+    /// knows its address type. Not cleared by [`close`].
+    seen: bool,
     /// When `gatt` was made, to make it again if it waits for good
     /// ([`watch_ble::WAIT_AT_MOST`]).
     since: Option<Instant>,
@@ -96,6 +103,8 @@ static LINK: Mutex<Link> = Mutex::new(Link {
     retries: 0,
     connected: false,
     scan: None,
+    seek: None,
+    seen: false,
     since: None,
     clock: None,
 });
@@ -157,6 +166,47 @@ pub fn allowed() -> bool {
             Ok(())
         },
         "bluetooth permission",
+    );
+    out
+}
+
+/// Whether the phone finds no Bluetooth watches because its Location is
+/// off: Android 11 and earlier give a scan nothing then (and say nothing
+/// about why). Android 12 and later scan with "Nearby devices" instead.
+pub fn location_off() -> bool {
+    let mut out = false;
+    with_env(
+        |env, ctx| {
+            let sdk = sdk_int(env)?;
+            if sdk >= 31 {
+                return Ok(());
+            }
+            let manager = system_service(env, ctx, "location")?;
+            if manager.is_null() {
+                return Ok(());
+            }
+            let on = if sdk >= 28 {
+                env.call_method(&manager, "isLocationEnabled", "()Z", &[])?
+                    .z()?
+            } else {
+                let mut any = false;
+                for provider in ["gps", "network"] {
+                    let p = env.new_string(provider)?;
+                    any |= env
+                        .call_method(
+                            &manager,
+                            "isProviderEnabled",
+                            "(Ljava/lang/String;)Z",
+                            &[JValue::Object(&p)],
+                        )?
+                        .z()?;
+                }
+                any
+            };
+            out = !on;
+            Ok(())
+        },
+        "location on",
     );
     out
 }
@@ -228,6 +278,9 @@ fn ensure() {
             "watch link: still waiting after {}s; trying again",
             waited.as_secs()
         );
+        // Android may have forgotten the watch's address type (Bluetooth
+        // went off and on in between): look for it too this time.
+        l.seen = false;
     }
     close(&mut l);
     if !allowed() {
@@ -242,18 +295,28 @@ fn ensure() {
                 return Ok(());
             }
             if !env.call_method(&adapter, "isEnabled", "()Z", &[])?.z()? {
+                // When it comes back on, Android has forgotten the watch.
+                l.seen = false;
                 status(Status::BluetoothOff);
                 return Ok(());
             }
             let address = env.new_string(&watch.address)?;
-            let device = env
-                .call_method(
+            let reach = watch_ble::reach(sdk_int(env)?, &watch.address, l.seen);
+            let device = match reach {
+                watch_ble::Reach::LeDevice { address_type } => env.call_method(
+                    &adapter,
+                    "getRemoteLeDevice",
+                    "(Ljava/lang/String;I)Landroid/bluetooth/BluetoothDevice;",
+                    &[JValue::Object(&address), JValue::Int(address_type)],
+                ),
+                watch_ble::Reach::Device | watch_ble::Reach::DeviceAndScan => env.call_method(
                     &adapter,
                     "getRemoteDevice",
                     "(Ljava/lang/String;)Landroid/bluetooth/BluetoothDevice;",
                     &[JValue::Object(&address)],
-                )?
-                .l()?;
+                ),
+            }?
+            .l()?;
             let class = app_class(env, ctx, &format!("{PKG}.WatchGatt"))?;
             let callback = env.new_object(&class, "()V", &[])?;
             // autoConnect: Android connects whenever the watch is about,
@@ -279,7 +342,10 @@ fn ensure() {
             l.address = Some(watch.address.clone());
             l.since = Some(Instant::now());
             status(Status::Connecting);
-            log::info!("watch link: waiting for {}", watch.name);
+            log::info!("watch link: waiting for {} ({reach:?})", watch.name);
+            if reach == watch_ble::Reach::DeviceAndScan {
+                seek(env, ctx, &adapter, &watch.name, &mut l)?;
+            }
             Ok(())
         },
         "watch connect",
@@ -342,8 +408,121 @@ fn resend_clock() {
     }
 }
 
+/// Looks for the watch called `name` while its connection waits
+/// ([`watch_ble::Reach::DeviceAndScan`]): a scan filtered by the name, so
+/// it goes on with the screen off. Its results come to `nativeFound`, which
+/// makes the connection again once the watch's address shows up.
+fn seek(
+    env: &mut JNIEnv,
+    ctx: &JObject,
+    adapter: &JObject,
+    name: &str,
+    l: &mut Link,
+) -> JResult<()> {
+    let scanner = env
+        .call_method(
+            adapter,
+            "getBluetoothLeScanner",
+            "()Landroid/bluetooth/le/BluetoothLeScanner;",
+            &[],
+        )?
+        .l()?;
+    if scanner.is_null() || l.seek.is_some() {
+        return Ok(());
+    }
+    let name = env.new_string(name)?;
+    let builder = env.new_object("android/bluetooth/le/ScanFilter$Builder", "()V", &[])?;
+    env.call_method(
+        &builder,
+        "setDeviceName",
+        "(Ljava/lang/String;)Landroid/bluetooth/le/ScanFilter$Builder;",
+        &[JValue::Object(&name)],
+    )?;
+    let filter = env
+        .call_method(
+            &builder,
+            "build",
+            "()Landroid/bluetooth/le/ScanFilter;",
+            &[],
+        )?
+        .l()?;
+    let filters = env.new_object("java/util/ArrayList", "()V", &[])?;
+    env.call_method(
+        &filters,
+        "add",
+        "(Ljava/lang/Object;)Z",
+        &[JValue::Object(&filter)],
+    )?;
+    let builder = env.new_object("android/bluetooth/le/ScanSettings$Builder", "()V", &[])?;
+    env.call_method(
+        &builder,
+        "setScanMode",
+        "(I)Landroid/bluetooth/le/ScanSettings$Builder;",
+        // SCAN_MODE_LOW_POWER: it may take a while, which is fine.
+        &[JValue::Int(0)],
+    )?;
+    let settings = env
+        .call_method(
+            &builder,
+            "build",
+            "()Landroid/bluetooth/le/ScanSettings;",
+            &[],
+        )?
+        .l()?;
+    let class = app_class(env, ctx, &format!("{PKG}.WatchScan"))?;
+    let callback = env.new_object(&class, "()V", &[])?;
+    env.call_method(
+        &scanner,
+        "startScan",
+        "(Ljava/util/List;Landroid/bluetooth/le/ScanSettings;Landroid/bluetooth/le/ScanCallback;)V",
+        &[
+            JValue::Object(&filters),
+            JValue::Object(&settings),
+            JValue::Object(&callback),
+        ],
+    )?;
+    l.seek = Some(env.new_global_ref(&callback)?);
+    log::info!("watch link: looking for the watch too");
+    Ok(())
+}
+
+/// Stops [`seek`]'s scan, if it's on.
+fn stop_seek(l: &mut Link) {
+    let Some(callback) = l.seek.take() else {
+        return;
+    };
+    with_env(
+        |env, ctx| {
+            let adapter = adapter(env, ctx)?;
+            if adapter.is_null() {
+                return Ok(());
+            }
+            let scanner = env
+                .call_method(
+                    &adapter,
+                    "getBluetoothLeScanner",
+                    "()Landroid/bluetooth/le/BluetoothLeScanner;",
+                    &[],
+                )?
+                .l()?;
+            // Null while Bluetooth is off, when the scan has stopped anyway.
+            if !scanner.is_null() {
+                env.call_method(
+                    &scanner,
+                    "stopScan",
+                    "(Landroid/bluetooth/le/ScanCallback;)V",
+                    &[JValue::Object(callback.as_obj())],
+                )?;
+            }
+            Ok(())
+        },
+        "stop looking for the watch",
+    );
+}
+
 /// Drops the connection, and with it whatever was waiting to be written.
 fn close(l: &mut Link) {
+    stop_seek(l);
     if let Some(gatt) = l.gatt.take() {
         with_env(
             |env, _| {
@@ -489,6 +668,8 @@ pub extern "system" fn Java_com_cbishopvelti_beep_WatchGatt_nativeState<'l>(
         if state == STATE_CONNECTED {
             log::info!("watch link: connected");
             l.connected = true;
+            l.seen = true;
+            stop_seek(&mut l);
             status(Status::SettingUp);
             let r = (|| {
                 let asked = env
@@ -811,6 +992,24 @@ pub extern "system" fn Java_com_cbishopvelti_beep_WatchScan_nativeFound<'l>(
         if watch_ble::found_watches() != before {
             platform::changed();
         }
+        // The watch the link waits for: Android knows its address type now,
+        // so a connection made before it did (which would never find it) is
+        // made again.
+        let ours = watch_ble::settings()
+            .watch
+            .is_some_and(|w| w.address.eq_ignore_ascii_case(&address));
+        if ours {
+            let mut l = link();
+            l.seen = true;
+            if l.seek.is_some() && !l.connected {
+                log::info!("watch link: found the watch; connecting again");
+                close(&mut l);
+                drop(l);
+                later(Duration::ZERO, ensure);
+            } else {
+                stop_seek(&mut l);
+            }
+        }
     });
 }
 
@@ -891,8 +1090,8 @@ pub extern "system" fn Java_com_cbishopvelti_beep_WatchService_nativeStarted<'l>
                 &mut env,
                 &service,
                 &channel,
-                "Connected to your watch",
-                "Beep Test keeps the watch connected while it's closed.",
+                "Watch link on",
+                "Beep Test connects to your watch, and syncs with it, while it's closed.",
             )?;
             if sdk_int(&mut env)? >= 29 {
                 env.call_method(

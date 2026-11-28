@@ -6,7 +6,9 @@ import android.bluetooth.le.ScanResult;
 
 /**
  * What a Bluetooth scan sees while Settings looks for the watch to connect
- * to directly; Rust (src/platform/android/ble.rs) keeps the watches.
+ * to directly, or while the direct link looks for the watch it waits for
+ * (before Android 13, until Android has seen it since Bluetooth came on);
+ * Rust (src/platform/android/ble.rs) keeps the watches and reconnects.
  */
 public final class WatchScan extends ScanCallback {
     static {

@@ -8,7 +8,7 @@
 //! [`progress_series`], [`hr_segments`]), so the tests check it without
 //! pixels.
 
-use crate::beeplog::LevelRow;
+use crate::beeplog::{self, LevelRow};
 use crate::store::TestResult;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Shape, Stroke, TextStyle, Vec2, pos2};
 
@@ -157,11 +157,27 @@ pub fn hr_segments(hr: &[(f64, f64)], gap_s: f64) -> Vec<Vec<(f64, f64)>> {
 }
 
 /// The heart rate chart's scale: the whole test across (to `end_s`, or the
-/// last reading), and the readings widened to twenties.
+/// last reading), and the readings widened to twenties. Whatever it's
+/// given, it stays finite and inside what a test can be
+/// ([`beeplog::LONGEST_TEST_S`], [`beeplog::HIGHEST_BPM`]), so drawing it
+/// is a few lines and labels, never millions.
 pub fn hr_scale(hr: &[(f64, f64)], end_s: f64) -> Scale {
-    let last = hr.last().map_or(0.0, |p| p.0);
-    let lo = hr.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-    let hi = hr.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+    let sane = |t: f64| {
+        if t.is_finite() {
+            t.clamp(0.0, beeplog::LONGEST_TEST_S)
+        } else {
+            0.0
+        }
+    };
+    let last = hr.iter().map(|p| sane(p.0)).fold(0.0, f64::max);
+    let bpm = || {
+        hr.iter()
+            .map(|p| p.1)
+            .filter(|b| b.is_finite())
+            .map(|b| b.clamp(0.0, beeplog::HIGHEST_BPM))
+    };
+    let lo = bpm().fold(f64::INFINITY, f64::min);
+    let hi = bpm().fold(f64::NEG_INFINITY, f64::max);
     let (y0, y1) = if lo.is_finite() {
         nice_range(lo - 5.0, hi + 5.0, 20.0)
     } else {
@@ -169,30 +185,47 @@ pub fn hr_scale(hr: &[(f64, f64)], end_s: f64) -> Scale {
     };
     Scale {
         x0: 0.0,
-        x1: end_s.max(last).max(1.0),
+        x1: sane(end_s).max(last).max(1.0),
         y0,
         y1,
     }
 }
 
-/// Room for the axes' labels: left of the plot, under it, and over it (the
-/// levels' numbers).
-const LEFT: f32 = 30.0;
-const BELOW: f32 = 18.0;
-const ABOVE: f32 = 16.0;
+/// Room for the axes' labels (at the phone's text size): left of the plot,
+/// under it, and over it.
+fn margins() -> (f32, f32, f32) {
+    let s = super::text_scale();
+    (30.0 * s, 18.0 * s, 16.0 * s)
+}
 
 fn grid_color(ui: &egui::Ui) -> Color32 {
     ui.visuals().widgets.noninteractive.bg_stroke.color
 }
 
-/// The y axis: a line and a number at each `step` from `scale.y0` to
-/// `scale.y1`.
+/// The most lines [`grid_lines`] gives.
+pub const MOST_LINES: usize = 10;
+
+/// Where the y axis's lines go: at each `step` from `scale.y0` to
+/// `scale.y1`, at most [`MOST_LINES`], and none for a scale or step that
+/// isn't a finite number.
+pub fn grid_lines(scale: &Scale, step: f64) -> Vec<f64> {
+    let (y0, y1) = (scale.y0, scale.y1);
+    if !(y0.is_finite() && y1.is_finite() && step.is_finite() && step > 0.0) || y1 < y0 {
+        return Vec::new();
+    }
+    let n = ((y1 - y0) / step + 1e-9)
+        .floor()
+        .min(MOST_LINES as f64 - 1.0) as usize
+        + 1;
+    (0..n).map(|i| y0 + i as f64 * step).collect()
+}
+
+/// The y axis: a line and a number at each of [`grid_lines`].
 fn y_grid(ui: &egui::Ui, plot: Rect, scale: &Scale, step: f64) {
     let painter = ui.painter();
     let font = TextStyle::Small.resolve(ui.style());
     let weak = ui.visuals().weak_text_color();
-    let mut y = scale.y0;
-    while y <= scale.y1 + 1e-9 {
+    for y in grid_lines(scale, step) {
         let p = scale.at(plot, scale.x0, y);
         painter.line_segment(
             [pos2(plot.left(), p.y), pos2(plot.right(), p.y)],
@@ -205,25 +238,75 @@ fn y_grid(ui: &egui::Ui, plot: Rect, scale: &Scale, step: f64) {
             font.clone(),
             weak,
         );
-        y += step;
     }
 }
 
-/// The y axis's step: about four lines whatever the range.
-fn y_step(scale: &Scale, base: f64) -> f64 {
+/// The y axis's step: about four lines whatever the range (`base` for a
+/// range that isn't a finite number).
+pub fn y_step(scale: &Scale, base: f64) -> f64 {
+    let range = scale.y1 - scale.y0;
     let mut step = base;
-    while (scale.y1 - scale.y0) / step > 5.0 {
+    if !(range.is_finite() && base.is_finite() && base > 0.0) {
+        return base;
+    }
+    while range / step > 5.0 {
         step *= 2.0;
     }
     step
+}
+
+/// The minutes the heart rate chart labels along its bottom, for a test
+/// `end_s` long drawn `px_per_s` points a second, with labels as wide as
+/// `width` says ("14:00", Small): every 1, 2, 5, 10, 15, 30 or 60 minutes,
+/// the first of those that leaves room between labels (the first, "0:00",
+/// sits right of its mark, the rest centred on theirs). At most
+/// [`MOST_LINES`] + 1 of them, whatever it's given.
+pub fn minute_marks(end_s: f64, px_per_s: f64, width: impl Fn(i64) -> f32) -> Vec<i64> {
+    if !(end_s.is_finite() && px_per_s.is_finite() && px_per_s > 0.0) {
+        return vec![0];
+    }
+    let minutes = (end_s.clamp(0.0, beeplog::LONGEST_TEST_S) / 60.0).floor() as i64;
+    let widest = (0..=minutes.min(9))
+        .chain([minutes])
+        .map(&width)
+        .fold(0.0_f32, f32::max) as f64;
+    let first = width(0) as f64;
+    let room = (widest + 8.0).max(first + widest / 2.0 + 8.0);
+    let every = [1, 2, 5, 10, 15, 30, 60]
+        .into_iter()
+        .find(|e| *e as f64 * 60.0 * px_per_s >= room)
+        .unwrap_or(60)
+        .max((minutes + MOST_LINES as i64 - 1) / MOST_LINES as i64);
+    (0..=minutes).step_by(every as usize).collect()
+}
+
+/// What the progress chart says under its ends: the first result's date
+/// at the left (from `first.1`, `first.2` wide) and the last's at the right
+/// (to `last.1`). One date, centred between them, when they say the same;
+/// and one line, "27 Nov – 28 Nov", when the two would run into each
+/// other. (text, x, how it's aligned on x.)
+pub fn date_labels(
+    first: (String, f32, f32),
+    last: (String, f32, f32),
+) -> Vec<(String, f32, Align2)> {
+    let (a, xa, wa) = first;
+    let (b, xb, wb) = last;
+    let mid = (xa + xb) / 2.0;
+    if a == b {
+        vec![(a, mid, Align2::CENTER_TOP)]
+    } else if xa + wa + 8.0 > xb - wb {
+        vec![(format!("{a} – {b}"), mid, Align2::CENTER_TOP)]
+    } else {
+        vec![(a, xa, Align2::LEFT_TOP), (b, xb, Align2::RIGHT_TOP)]
+    }
 }
 
 /// The progress chart, `height` points high, the page's width.
 pub fn progress(ui: &mut egui::Ui, series: &[Series], height: f32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
     let plot = Rect::from_min_max(
-        rect.min + Vec2::new(LEFT, 8.0),
-        rect.max - Vec2::new(8.0, BELOW),
+        rect.min + Vec2::new(margins().0, 8.0),
+        rect.max - Vec2::new(8.0, margins().1),
     );
     let scale = progress_scale(series);
     y_grid(ui, plot, &scale, y_step(&scale, 10.0));
@@ -247,29 +330,21 @@ pub fn progress(ui: &mut egui::Ui, series: &[Series], height: f32) {
     if let (Some(&first), Some(&last)) = (all.iter().min(), all.iter().max()) {
         let y = plot.bottom() + 3.0;
         let at = |t: i64| scale.at(plot, t as f64, scale.y0).x;
-        if first == last {
-            painter.text(
-                pos2(at(first), y),
-                Align2::CENTER_TOP,
-                date(first as f64),
-                font.clone(),
-                weak,
-            );
+        let width = |text: &str| {
+            painter
+                .layout_no_wrap(text.to_owned(), font.clone(), weak)
+                .size()
+                .x
+        };
+        let (a, b) = (date(first as f64), date(last as f64));
+        let (wa, wb) = (width(&a), width(&b));
+        let labels = if first == last {
+            vec![(a, at(first), Align2::CENTER_TOP)]
         } else {
-            painter.text(
-                pos2(at(first), y),
-                Align2::LEFT_TOP,
-                date(first as f64),
-                font.clone(),
-                weak,
-            );
-            painter.text(
-                pos2(at(last), y),
-                Align2::RIGHT_TOP,
-                date(last as f64),
-                font.clone(),
-                weak,
-            );
+            date_labels((a, at(first), wa), (b, at(last), wb))
+        };
+        for (text, x, align) in labels {
+            painter.text(pos2(x, y), align, text, font.clone(), weak);
         }
     }
     for s in series {
@@ -300,8 +375,8 @@ pub fn heart_rate(
 ) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
     let plot = Rect::from_min_max(
-        rect.min + Vec2::new(LEFT, ABOVE),
-        rect.max - Vec2::new(8.0, BELOW),
+        rect.min + Vec2::new(margins().0, margins().2),
+        rect.max - Vec2::new(8.0, margins().1),
     );
     let scale = hr_scale(hr, end_s);
     let font = TextStyle::Small.resolve(ui.style());
@@ -318,7 +393,7 @@ pub fn heart_rate(
         }
         let mid = (a.x + b.x) / 2.0;
         let text = row.level.to_string();
-        let w = 7.0 * text.len() as f32;
+        let w = 7.0 * super::text_scale() * text.len() as f32;
         if mid - w / 2.0 >= last_label + 4.0 && mid + w / 2.0 <= rect.right() {
             ui.painter().text(
                 pos2(mid, plot.top() - 2.0),
@@ -331,22 +406,24 @@ pub fn heart_rate(
         }
     }
     y_grid(ui, plot, &scale, y_step(&scale, 20.0));
-    // Minutes along the bottom.
-    let minutes = (scale.x1 / 60.0).floor() as i64;
-    let every = match minutes {
-        0..=6 => 1,
-        7..=14 => 2,
-        15..=30 => 5,
-        _ => 10,
+    // Minutes along the bottom, as many as fit.
+    let width = |m: i64| {
+        ui.painter()
+            .layout_no_wrap(format!("{m}:00"), font.clone(), weak)
+            .size()
+            .x
     };
-    for m in (0..=minutes).step_by(every as usize) {
+    let px_per_s = f64::from(plot.width()) / (scale.x1 - scale.x0);
+    let mut last_right = f32::NEG_INFINITY;
+    for m in minute_marks(scale.x1, px_per_s, width) {
         let x = scale.at(plot, m as f64 * 60.0, scale.y0).x;
-        let align = if m == 0 {
-            Align2::LEFT_TOP
+        let w = width(m);
+        let (align, left) = if m == 0 {
+            (Align2::LEFT_TOP, x)
         } else {
-            Align2::CENTER_TOP
+            (Align2::CENTER_TOP, x - w / 2.0)
         };
-        if x + 12.0 <= rect.right() {
+        if left >= last_right + 4.0 && left + w <= rect.right() {
             ui.painter().text(
                 pos2(x, plot.bottom() + 3.0),
                 align,
@@ -354,6 +431,7 @@ pub fn heart_rate(
                 font.clone(),
                 weak,
             );
+            last_right = left + w;
         }
     }
     for run in hr_segments(hr, 5.0) {
@@ -369,16 +447,39 @@ pub fn heart_rate(
 
 /// A key under a chart: a short line in each colour and what it is.
 pub fn legend(ui: &mut egui::Ui, items: &[(Color32, String)]) {
+    ui.scope(|ui| legend_lines(ui, items));
+}
+
+fn legend_lines(ui: &mut egui::Ui, items: &[(Color32, String)]) {
+    const SWATCH: f32 = 18.0;
+    const GAP: f32 = 6.0;
+    // Its lines a line apart (a row is a touch's height at the least).
+    ui.spacing_mut().interact_size.y = 0.0;
     ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.spacing_mut().item_spacing = Vec2::new(14.0, 4.0);
+        let row = ui.max_rect().width();
         for (color, text) in items {
-            let (rect, _) = ui.allocate_exact_size(Vec2::new(18.0, 14.0), Sense::hover());
+            // Each item is one widget, its colour and its words, so a
+            // line that runs out moves the whole of it to the next one
+            // (cut short only if it's wider than a line by itself).
+            let galley = egui::WidgetText::from(egui::RichText::new(text).small()).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Truncate),
+                (row - SWATCH - GAP).max(0.0),
+                TextStyle::Small,
+            );
+            let size = Vec2::new(SWATCH + GAP + galley.size().x, galley.size().y.max(14.0));
+            let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text.as_str())
+            });
+            let y = rect.center().y;
             ui.painter().line_segment(
-                [rect.left_center(), rect.right_center()],
+                [pos2(rect.left(), y), pos2(rect.left() + SWATCH, y)],
                 Stroke::new(3.0_f32, *color),
             );
-            ui.label(egui::RichText::new(text).small());
-            ui.add_space(8.0);
+            let at = pos2(rect.left() + SWATCH + GAP, y - galley.size().y / 2.0);
+            ui.painter().galley(at, galley, ui.visuals().text_color());
         }
     });
 }
@@ -538,5 +639,106 @@ mod tests {
         assert_eq!(hr_scale(&hr, 0.0).x1, 13.0);
         let none = hr_scale(&[], 0.0);
         assert_eq!((none.y0, none.y1, none.x1), (60.0, 200.0, 1.0));
+    }
+
+    #[test]
+    fn a_log_with_numbers_no_test_has_still_draws_a_few_lines() {
+        // A reading at 1e12 s and one at Infinity bpm (a forged broadcast,
+        // or a corrupt log): the axes stay what a test can be.
+        let s = hr_scale(&[(2.0, 90.0), (1e12, f64::INFINITY)], f64::INFINITY);
+        assert!(s.x1.is_finite() && s.x1 <= beeplog::LONGEST_TEST_S, "{s:?}");
+        assert!(
+            s.y1.is_finite() && s.y1 <= beeplog::HIGHEST_BPM + 20.0,
+            "{s:?}"
+        );
+        assert_eq!(hr_scale(&[(f64::NAN, f64::NAN)], f64::NAN).x1, 1.0);
+        // However wide the scale, the grid is a few lines, and none for
+        // one that isn't finite.
+        let wide = Scale {
+            x0: 0.0,
+            x1: 1.0,
+            y0: 0.0,
+            y1: 1e300,
+        };
+        assert!(grid_lines(&wide, y_step(&wide, 20.0)).len() <= MOST_LINES);
+        assert!(grid_lines(&wide, 1.0).len() <= MOST_LINES);
+        let inf = Scale {
+            y1: f64::INFINITY,
+            ..wide
+        };
+        assert_eq!(y_step(&inf, 20.0), 20.0);
+        assert!(grid_lines(&inf, 20.0).is_empty());
+        assert!(grid_lines(&wide, f64::INFINITY).is_empty());
+        assert!(grid_lines(&wide, 0.0).is_empty());
+        assert_eq!(
+            grid_lines(
+                &Scale {
+                    y0: 80.0,
+                    y1: 200.0,
+                    ..wide
+                },
+                40.0
+            ),
+            vec![80.0, 120.0, 160.0, 200.0]
+        );
+        // The minutes along the bottom: a few, for any length.
+        let w = |m: i64| if m >= 10 { 35.0 } else { 27.0 };
+        for end in [1e12, f64::INFINITY, beeplog::LONGEST_TEST_S] {
+            assert!(minute_marks(end, 218.0 / 600.0, w).len() <= MOST_LINES + 1);
+        }
+        assert_eq!(minute_marks(f64::NAN, 1.0, w), vec![0]);
+        assert_eq!(minute_marks(100.0, 0.0, w), vec![0]);
+    }
+
+    #[test]
+    fn minute_labels_leave_room_between_them() {
+        // "10:00" is about 35 pt in Small, "0:00" about 27.
+        let w = |m: i64| if m >= 10 { 35.0 } else { 27.0 };
+        // A 14-minute test at 320 dp (a plot 218 pt wide, 870 s across):
+        // every 2 minutes would be 30 pt apart, so every 5.
+        let marks = minute_marks(870.0, 218.0 / 870.0, w);
+        assert_eq!(marks, vec![0, 5, 10]);
+        // Each label clear of the next: the first sits right of its mark,
+        // the rest centred.
+        let px = 218.0 / 870.0 * 60.0;
+        for pair in marks.windows(2) {
+            let right = if pair[0] == 0 {
+                w(0)
+            } else {
+                pair[0] as f32 * px + w(pair[0]) / 2.0
+            };
+            let left = pair[1] as f32 * px - w(pair[1]) / 2.0;
+            assert!(left - right >= 8.0, "{pair:?}");
+        }
+        // A short test on a wide screen: every minute.
+        assert_eq!(minute_marks(300.0, 1.0, w), vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn the_progress_charts_dates_never_run_together() {
+        // All on one day: the same date at both ends, once, centred.
+        assert_eq!(
+            date_labels(
+                ("27 Nov".into(), 150.0, 40.0),
+                ("27 Nov".into(), 152.0, 40.0)
+            ),
+            vec![("27 Nov".to_string(), 151.0, Align2::CENTER_TOP)]
+        );
+        // Two days less than a day apart, near the middle: one line.
+        assert_eq!(
+            date_labels(
+                ("27 Nov".into(), 140.0, 40.0),
+                ("28 Nov".into(), 160.0, 40.0)
+            ),
+            vec![("27 Nov – 28 Nov".to_string(), 150.0, Align2::CENTER_TOP)]
+        );
+        // Far apart: each under its end.
+        assert_eq!(
+            date_labels(("1 Oct".into(), 30.0, 30.0), ("27 Nov".into(), 300.0, 40.0)),
+            vec![
+                ("1 Oct".to_string(), 30.0, Align2::LEFT_TOP),
+                ("27 Nov".to_string(), 300.0, Align2::RIGHT_TOP)
+            ]
+        );
     }
 }

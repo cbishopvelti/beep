@@ -96,9 +96,23 @@ pub fn amber_text(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
         super::AMBER
     } else {
-        Color32::from_rgb(0xa8, 0x6a, 0x00)
+        LIGHT_AMBER_TEXT
     }
 }
+
+/// Green as text (the "Best" chips, "Connected"): as it is on the dark
+/// theme, darker on the light one, where the dot's green is about 2.3:1 on
+/// its tint and small text needs 4.5:1.
+pub fn green_text(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        super::GREEN
+    } else {
+        LIGHT_GREEN_TEXT
+    }
+}
+
+const LIGHT_GREEN_TEXT: Color32 = Color32::from_rgb(0x1a, 0x73, 0x38);
+const LIGHT_AMBER_TEXT: Color32 = Color32::from_rgb(0x8a, 0x57, 0x00);
 
 /// The mark at a row's end: pointing right when it's shut, down when open.
 fn chevron(ui: &mut egui::Ui, open: bool) {
@@ -165,7 +179,63 @@ pub fn when(at: i64, now: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::short;
+    use super::*;
+
+    /// WCAG's contrast ratio of two colours.
+    fn contrast(a: Color32, b: Color32) -> f64 {
+        let lum = |c: Color32| {
+            let f = |v: u8| {
+                let v = f64::from(v) / 255.0;
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * f(c.r()) + 0.7152 * f(c.g()) + 0.0722 * f(c.b())
+        };
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// `c` at 15% over `bg`, as a tinted chip's fill is drawn.
+    fn tint(c: Color32, bg: Color32) -> Color32 {
+        let mix = |a: u8, b: u8| (f64::from(a) * 0.15 + f64::from(b) * 0.85).round() as u8;
+        Color32::from_rgb(mix(c.r(), bg.r()), mix(c.g(), bg.g()), mix(c.b(), bg.b()))
+    }
+
+    /// A card's fill over the page: egui's faint fill is additive.
+    fn card(v: &egui::Visuals) -> Color32 {
+        let (p, f) = (v.panel_fill, v.faint_bg_color);
+        Color32::from_rgb(
+            p.r().saturating_add(f.r()),
+            p.g().saturating_add(f.g()),
+            p.b().saturating_add(f.b()),
+        )
+    }
+
+    #[test]
+    fn coloured_text_reads_on_the_light_theme() {
+        let light = egui::Visuals::light();
+        for text in [LIGHT_GREEN_TEXT, LIGHT_AMBER_TEXT] {
+            for bg in [light.panel_fill, card(&light), Color32::WHITE] {
+                // On the page and on a card, and on a chip's own tint there.
+                for under in [bg, tint(text, bg)] {
+                    let c = contrast(text, under);
+                    assert!(c >= 4.5, "{text:?} on {under:?}: {c:.2}");
+                }
+            }
+        }
+        // The dot's green, as text on its tint, didn't.
+        let on = tint(crate::ui::GREEN, card(&light));
+        assert!(contrast(crate::ui::GREEN, on) < 3.0);
+        // The dark theme's are the dots' own.
+        let dark = egui::Visuals::dark();
+        for text in [crate::ui::GREEN, crate::ui::AMBER] {
+            let c = contrast(text, tint(text, card(&dark)));
+            assert!(c >= 4.5, "{text:?}: {c:.2}");
+        }
+    }
 
     #[test]
     fn times_are_short_today_and_dated_before() {

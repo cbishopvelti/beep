@@ -83,9 +83,13 @@ pub fn begin(ui: &mut egui::Ui) {
     ui.spacing_mut().item_spacing.y = 6.0;
 }
 
-/// The medium font, at `size`.
+/// The medium font, at `size` (times the phone's text size, as
+/// [`super::medium`]).
 pub fn medium(size: f32) -> FontId {
-    FontId::new(size, FontFamily::Name(super::BOLD.into()))
+    FontId::new(
+        size * super::text_scale(),
+        FontFamily::Name(super::BOLD.into()),
+    )
 }
 
 /// A pop-up's title.
@@ -104,7 +108,7 @@ pub fn title(ui: &mut egui::Ui, text: &str) {
 /// The few words under a title.
 pub fn text(ui: &mut egui::Ui, text: &str) {
     ui.add(
-        egui::Label::new(RichText::new(text).size(15.0).weak())
+        egui::Label::new(RichText::new(text).size(15.0 * super::text_scale()).weak())
             .wrap()
             .selectable(false),
     );

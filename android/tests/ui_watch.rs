@@ -9,7 +9,7 @@ use beep_android::store::Theme;
 use beep_android::ui::{App, Page};
 use beep_android::{health, platform, ui};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use std::collections::BTreeMap;
 
 /// The watch says `state`, as Gadgetbridge's broadcast would bring it
@@ -34,6 +34,13 @@ fn watch_says(m: &str, gps: &str, p: Option<&str>, run: &str) {
     platform::from_watch(&extras);
 }
 
+/// Whether the chip called `label` is drawn as the one chosen.
+fn chosen(harness: &Harness<'_, App>, label: &str) -> bool {
+    let toggled = harness.get_by_label(label).accesskit_node().toggled();
+    assert!(toggled.is_some(), "{label} is a choice");
+    toggled == Some(egui::accesskit::Toggled::True)
+}
+
 #[test]
 fn the_menu_the_watch_settings_and_the_theme() {
     let dir = tempfile::tempdir().unwrap();
@@ -53,10 +60,24 @@ fn the_menu_the_watch_settings_and_the_theme() {
     harness.get_by_label("Beep Test 0.05");
 
     // 15 m: sent, and waiting for the watch, which still says 20 m.
+    assert!(chosen(&harness, "20 m") && !chosen(&harness, "15 m"));
     harness.get_by_label("15 m").click();
     harness.run_steps(3);
     harness.get_by_label("Sending the 15 m course to the watch...");
     harness.get_by_label("15 m …");
+    assert!(chosen(&harness, "20 m"), "the watch's own until it answers");
+    // Changed back before it answers: 20 m goes too, and is waited for.
+    harness.get_by_label("20 m").click();
+    harness.run_steps(3);
+    harness.get_by_label("Sending the 20 m course to the watch...");
+    harness.get_by_label("20 m …");
+    // And to 15 m again. The watch answers the 20 m first: still waiting.
+    harness.get_by_label("15 m").click();
+    harness.run_steps(3);
+    harness.get_by_label("15 m …");
+    watch_says("20", "false", Some("0"), "");
+    harness.run_steps(3);
+    harness.get_by_label("Sending the 15 m course to the watch...");
     // The watch answers: shown as the watch has it, nothing waiting.
     watch_says("15", "false", Some("0"), "");
     harness.run_steps(3);
@@ -66,9 +87,16 @@ fn the_menu_the_watch_settings_and_the_theme() {
             .query_by_label("Sending the 15 m course to the watch...")
             .is_none()
     );
-    harness.get_by_label("15 m");
+    assert!(chosen(&harness, "15 m") && !chosen(&harness, "20 m"));
 
-    // GPS speed, the same way.
+    // GPS speed, the same way, and the switch shows what's on its way,
+    // so a second tap takes it back.
+    harness.get_by_label("Record GPS speed").click();
+    harness.run_steps(3);
+    harness.get_by_label("Sending GPS speed on to the watch...");
+    harness.get_by_label("Record GPS speed").click();
+    harness.run_steps(3);
+    harness.get_by_label("Sending GPS speed off to the watch...");
     harness.get_by_label("Record GPS speed").click();
     harness.run_steps(3);
     harness.get_by_label("Sending GPS speed on to the watch...");
@@ -95,6 +123,7 @@ fn the_menu_the_watch_settings_and_the_theme() {
             .is_none()
     );
     assert_eq!(store.watch_state().p, Some(2));
+    assert!(chosen(&harness, "8.5, 9.5") && !chosen(&harness, "8, 9"));
     harness.get_by_label_contains("8.5, 9.5, 10.0... km/h now");
     // A watch app without the Speeds setting: no Speeds to choose.
     watch_says("15", "true", None, "");

@@ -59,12 +59,31 @@ fn open_a_result_share_it_go_back_and_delete_one() {
     harness.get_by_label("Share TCX");
     harness.get_by_label("Levels");
 
-    // The option, then a CSV: the desktop writes it to exports/ and says
-    // where.
+    // The option, then a TCX: the desktop writes it to exports/ and says
+    // where. It leaves out the readings below 50% (the demo's logs have
+    // some), as beeplog.js's toTCX(log, {minConfidence: 50}) does.
     harness
         .get_by_label("Leave out low-confidence heart rate readings (<50%)")
         .click();
     harness.run_steps(2);
+    harness.get_by_label("Share TCX").click();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Written to ");
+    let log = store.log(&newest.entry.f).unwrap();
+    let want = beep_android::beeplog::to_tcx(&log, 50.0).unwrap();
+    assert_ne!(
+        want,
+        beep_android::beeplog::to_tcx(&log, 0.0).unwrap(),
+        "the demo log has low-confidence readings"
+    );
+    let tcx: Vec<_> = std::fs::read_dir(store.dir().join("exports"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".tcx"))
+        .collect();
+    assert_eq!(tcx.len(), 1);
+    assert_eq!(std::fs::read_to_string(tcx[0].path()).unwrap(), want);
+    // A CSV has every reading, whatever the option.
     harness.get_by_label("Share CSV").click();
     harness.run_steps(2);
     harness.get_by_label_contains("Written to ");
@@ -176,4 +195,112 @@ fn a_result_on_other_speeds_says_them_and_has_its_own_best() {
     harness.get_by_label("Speeds");
     harness.get_by_label("8.5, 9.5, 10.0... km/h");
     harness.get_by_label("★ Best");
+}
+
+#[test]
+fn back_from_a_result_is_where_the_list_was() {
+    let store = store();
+    let app = App::new(store.clone());
+    let mut harness = Harness::builder()
+        .with_size([411.0, 800.0])
+        .build_state(|ctx, app: &mut App| app.show(ctx), app);
+    harness.run_steps(3);
+    // The oldest result with its log, far down the list: scrolled to.
+    let oldest = store
+        .results()
+        .into_iter()
+        .rfind(|r| r.log == LogState::Complete)
+        .unwrap();
+    let card = format!(
+        "Result {} on {} m",
+        oldest.entry.score_text(),
+        oldest.entry.m
+    );
+    harness.get_by_label_contains(&card).scroll_to_me();
+    harness.run_steps(5);
+    let at = harness.get_by_label_contains(&card).rect();
+    assert!(at.top() > 0.0 && at.bottom() < 800.0, "{at:?}");
+    let top = harness.get_by_label("Progress").rect();
+    assert!(top.bottom() < 0.0, "scrolled past the chart: {top:?}");
+    // Open it: the page starts at its top.
+    harness.get_by_label_contains(&card).click();
+    harness.run_steps(3);
+    assert_eq!(
+        harness.state().page(),
+        &Page::Result(oldest.entry.f.clone())
+    );
+    let distance = harness.get_by_label("Distance").rect();
+    assert!(
+        distance.top() > 0.0 && distance.bottom() < 800.0,
+        "{distance:?}"
+    );
+    // Back (the key, then the arrow): the list is where it was.
+    for back in [true, false] {
+        if back {
+            harness.key_press(egui::Key::BrowserBack);
+        } else {
+            harness.get_by_label_contains(&card).click();
+            harness.run_steps(3);
+            harness.get_by_label("Back").click();
+        }
+        harness.run_steps(3);
+        assert_eq!(harness.state().page(), &Page::Results);
+        let again = harness.get_by_label_contains(&card).rect();
+        assert!((again.top() - at.top()).abs() < 1.0, "{again:?} not {at:?}");
+    }
+}
+
+#[test]
+fn the_progress_legend_keeps_clear_of_its_units_on_a_narrow_screen() {
+    let store = store();
+    // Each course and speed progression the chart has a line for.
+    let mut labels: Vec<String> = Vec::new();
+    for r in store.results() {
+        let e = &r.entry;
+        let label = if e.p == 0 {
+            format!("{} m", e.m)
+        } else {
+            format!("{} m, {}", e.m, beep_android::tables::speeds_text(e.p))
+        };
+        if !labels.contains(&label) {
+            labels.push(label);
+        }
+    }
+    assert!(labels.len() >= 3, "{labels:?}");
+    for width in [411.0, 320.0] {
+        let app = App::new(store.clone());
+        let mut harness = Harness::builder()
+            .with_size([width, 1200.0])
+            .build_state(|ctx, app: &mut App| app.show(ctx), app);
+        harness.run_steps(3);
+        let units = harness.get_by_label("shuttles").rect();
+        assert!(units.right() <= width, "{width}: {units:?}");
+        // By the heading, which keeps its height.
+        let heading = harness.get_by_label("Progress").rect();
+        assert!(
+            units.top() < heading.bottom() && heading.top() < units.bottom(),
+            "{width}: {units:?} beside {heading:?}"
+        );
+        let mut tops = Vec::new();
+        for label in &labels {
+            let item = harness.get_by_label(label).rect();
+            tops.push(item.top());
+            assert!(
+                item.left() >= 0.0 && item.right() <= width,
+                "{width}: {label} at {item:?}"
+            );
+            // One line: an item's words aren't split from its colour.
+            assert!(item.height() < 24.0, "{width}: {label} at {item:?}");
+            assert!(
+                !item.intersects(units),
+                "{width}: {label} at {item:?} runs into shuttles at {units:?}"
+            );
+        }
+        // Lines of the legend a line apart, not a touch's height.
+        tops.sort_by(f32::total_cmp);
+        for pair in tops.windows(2) {
+            let gap = pair[1] - pair[0];
+            assert!(gap < 26.0, "{width}: lines {gap} apart");
+        }
+    }
 }

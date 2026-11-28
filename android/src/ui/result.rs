@@ -10,7 +10,7 @@
 //! result whose log hasn't arrived, or that has none (`LogState`), says so
 //! and offers no chart or shares. The back key goes back to Results.
 
-use super::{App, Dialog, Page, card, chart, chip, dialog, medium, section, status, toggle};
+use super::{App, Dialog, Page, card, chart, dialog, medium, section, status, toggle};
 use crate::beeplog::{self, LevelRow, Log};
 use crate::health;
 use crate::platform;
@@ -96,13 +96,15 @@ pub(crate) fn row_cells(row: &LevelRow) -> [String; 5] {
     ]
 }
 
-/// How long the log runs: to its end line, or its last sample.
+/// How long the log runs: to its end line, or its last sample, and never
+/// past what a test can be ([`beeplog::LONGEST_TEST_S`]).
 fn end_s(log: &Log) -> f64 {
     log.end
         .map(|e| e.t)
         .filter(|t| t.is_finite())
         .or_else(|| log.samples.last().map(|s| s.t))
-        .unwrap_or(0.0)
+        .filter(|t| t.is_finite())
+        .map_or(0.0, |t| t.clamp(0.0, beeplog::LONGEST_TEST_S))
 }
 
 /// Draws the page for the result whose log is `f`.
@@ -152,14 +154,7 @@ fn summary(ui: &mut egui::Ui, r: &TestResult, best: bool) {
     card(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.spacing_mut().interact_size.y = 22.0;
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(&text.when).weak());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if best {
-                    chip::tinted(ui, "★ Best", chip::Kind::Label, super::GREEN);
-                }
-            });
-        });
+        super::results::when_row(ui, RichText::new(&text.when).weak(), best);
         ui.horizontal(|ui| {
             ui.label(RichText::new(&text.score).font(medium(44.0)).strong());
             ui.label(RichText::new(format!("on {}", text.course)).weak());
@@ -282,17 +277,15 @@ fn levels_table(ui: &mut egui::Ui, rows: &[LevelRow]) {
         ui.label(RichText::new("The log has no samples.").weak());
         return;
     }
-    let gps = rows.iter().any(|r| r.gps_kmh.is_some());
-    let heads = ["Level", "Time", "Avg", "Max", "km/h"];
-    let columns = column_widths(gps);
     let width = ui.available_width();
-    let body = egui::TextStyle::Body.resolve(ui.style());
+    let table = Table::lay_out(ui, rows, width);
     let small = egui::TextStyle::Small.resolve(ui.style());
     let weak = ui.visuals().weak_text_color();
     let ink = ui.visuals().text_color();
     let stripe = ui.visuals().faint_bg_color.lerp_to_gamma(ink, 0.05);
-    // Painted, a line a level: the columns share the card's width, so the
-    // table never runs past it.
+    // Painted, a line a level, each column as wide as its widest cell
+    // ([`Table::lay_out`]), so the table never runs past the card and no
+    // cell runs into the next.
     let line = |ui: &mut egui::Ui,
                 height: f32,
                 cells: &[(String, egui::FontId, Color32)],
@@ -303,7 +296,7 @@ fn levels_table(ui: &mut egui::Ui, rows: &[LevelRow]) {
                 .rect_filled(rect.expand2(egui::vec2(6.0, 0.0)), 6.0, stripe);
         }
         let mut x = rect.left();
-        for ((text, font, color), w) in cells.iter().zip(&columns) {
+        for ((text, font, color), w) in cells.iter().zip(&table.widths) {
             ui.painter().text(
                 egui::pos2(x, rect.center().y),
                 egui::Align2::LEFT_CENTER,
@@ -311,24 +304,168 @@ fn levels_table(ui: &mut egui::Ui, rows: &[LevelRow]) {
                 font.clone(),
                 *color,
             );
-            x += w * width;
+            x += w;
         }
     };
     ui.spacing_mut().item_spacing.y = 0.0;
-    let head: Vec<_> = heads
+    let head: Vec<_> = table
+        .heads()
         .iter()
-        .take(columns.len())
+        .take(table.widths.len())
         .map(|h| (h.to_string(), small.clone(), weak))
         .collect();
     line(ui, 24.0, &head, false);
     for (i, row) in rows.iter().enumerate() {
-        let cells: Vec<_> = row_cells(row)
+        let cells: Vec<_> = table
+            .cells(row)
             .into_iter()
-            .take(columns.len())
+            .take(table.widths.len())
             .enumerate()
-            .map(|(c, text)| (text, if c == 0 { medium(16.0) } else { body.clone() }, ink))
+            .map(|(c, text)| (text, table.fonts[c].clone(), ink))
             .collect();
         line(ui, 28.0, &cells, i % 2 == 0);
+    }
+}
+
+/// The table's headings.
+const HEADS: [&str; 5] = ["Level", "Time", "Avg", "Max", "km/h"];
+/// The least room between one column's text and the next's.
+const COLUMN_GAP: f32 = 6.0;
+
+/// How the levels table is laid out: each column's width (points) and the
+/// font of its cells (the heads are Small).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Table {
+    pub widths: Vec<f32>,
+    pub fonts: Vec<egui::FontId>,
+    /// The Time column says only when each level ended ("Ended"), for
+    /// when even that's too wide from when to when.
+    pub ends_only: bool,
+}
+
+impl Table {
+    /// A row's cells as this table shows them.
+    pub fn cells(&self, row: &LevelRow) -> [String; 5] {
+        let mut cells = row_cells(row);
+        if self.ends_only {
+            cells[1] = super::duration(row.end_s);
+        }
+        cells
+    }
+
+    /// The headings.
+    pub fn heads(&self) -> [&'static str; 5] {
+        let mut heads = HEADS;
+        if self.ends_only {
+            heads[1] = "Ended";
+        }
+        heads
+    }
+}
+
+impl Table {
+    /// The columns for `rows` in a card `width` wide: the parts of it
+    /// [`column_widths`] gives, each widened to its widest cell (and a gap)
+    /// with the room taken from the others' spare ([`fit_columns`]). When
+    /// even that doesn't fit (a narrow screen, GPS on, a long test, large
+    /// text), the times go down to Small, then every cell, then the Time
+    /// column says only when each level ended; and if it still doesn't,
+    /// the columns are shared as they come.
+    pub fn lay_out(ui: &egui::Ui, rows: &[LevelRow], width: f32) -> Table {
+        let gps = rows.iter().any(|r| r.gps_kmh.is_some());
+        let parts = column_widths(gps);
+        let body = egui::TextStyle::Body.resolve(ui.style());
+        let small = egui::TextStyle::Small.resolve(ui.style());
+        let measure = |text: &str, font: &egui::FontId| {
+            ui.painter()
+                .layout_no_wrap(text.to_owned(), font.clone(), Color32::PLACEHOLDER)
+                .size()
+                .x
+        };
+        let first: Vec<egui::FontId> = (0..parts.len())
+            .map(|c| if c == 0 { medium(16.0) } else { body.clone() })
+            .collect();
+        let mut times_small = first.clone();
+        times_small[1] = small.clone();
+        let all_small = vec![small.clone(); parts.len()];
+        // Each try in turn, the first that fits.
+        let tries = [
+            (first, false),
+            (times_small, false),
+            (all_small.clone(), false),
+            (all_small.clone(), true),
+        ];
+        for (fonts, ends_only) in tries {
+            let t = Table {
+                widths: Vec::new(),
+                fonts,
+                ends_only,
+            };
+            let need: Vec<f32> = (0..parts.len())
+                .map(|c| {
+                    let head = measure(t.heads()[c], &small);
+                    rows.iter()
+                        .map(|r| measure(&t.cells(r)[c], &t.fonts[c]))
+                        .fold(head, f32::max)
+                })
+                .collect();
+            if let Some(widths) = fit_columns(width, &parts, &need) {
+                return Table { widths, ..t };
+            }
+        }
+        Table {
+            widths: parts.iter().map(|p| p * width).collect(),
+            fonts: all_small,
+            ends_only: true,
+        }
+    }
+}
+
+/// The columns' widths in points for a table `width` wide: each its part
+/// of the width (`parts`, summing to 1), except that a column narrower
+/// than its widest cell (`need`) and a gap is widened to that, the room
+/// coming from the other columns in proportion to their parts, none of
+/// them below its own need. `None` when the needs alone are past `width`.
+pub(crate) fn fit_columns(width: f32, parts: &[f32], need: &[f32]) -> Option<Vec<f32>> {
+    let last = parts.len().saturating_sub(1);
+    let want: Vec<f32> = need
+        .iter()
+        .enumerate()
+        .map(|(i, n)| if i == last { *n } else { n + COLUMN_GAP })
+        .collect();
+    if want.iter().sum::<f32>() > width {
+        return None;
+    }
+    // Columns held at their need; the rest share what's left.
+    let mut held = vec![false; parts.len()];
+    loop {
+        let rest = width
+            - (0..parts.len())
+                .filter(|&i| held[i])
+                .map(|i| want[i])
+                .sum::<f32>();
+        let share: f32 = (0..parts.len())
+            .filter(|&i| !held[i])
+            .map(|i| parts[i])
+            .sum();
+        let widths: Vec<f32> = (0..parts.len())
+            .map(|i| {
+                if held[i] {
+                    want[i]
+                } else {
+                    parts[i] / share * rest
+                }
+            })
+            .collect();
+        let short: Vec<usize> = (0..parts.len())
+            .filter(|&i| !held[i] && widths[i] < want[i])
+            .collect();
+        if short.is_empty() {
+            return Some(widths);
+        }
+        for i in short {
+            held[i] = true;
+        }
     }
 }
 
@@ -424,6 +561,151 @@ mod tests {
         assert_eq!(column_widths(false).len(), 4);
     }
 
+    /// A frame with the app's fonts and sizes (the text at `scale`),
+    /// `width` points wide.
+    fn in_a_frame(width: f32, scale: f32, f: impl FnOnce(&mut egui::Ui)) {
+        let ctx = egui::Context::default();
+        super::super::apply_theme(&ctx);
+        super::super::set_text_sizes(&ctx, scale);
+        let mut f = Some(f);
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 800.0),
+                )),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    // The fonts are there from the second frame.
+                    if ctx.cumulative_frame_nr() > 0
+                        && let Some(f) = f.take()
+                    {
+                        f(ui);
+                    }
+                });
+            });
+        }
+        super::super::set_text_sizes(&ctx, 1.0);
+        assert!(f.is_none(), "it ran");
+    }
+
+    #[test]
+    fn the_date_keeps_clear_of_best_on_a_narrow_screen_with_large_text() {
+        for (width, scale) in [(411.0, 1.0), (256.0, 1.0), (256.0, 1.3), (200.0, 1.3)] {
+            in_a_frame(width, scale, |ui| {
+                // As the cards have it.
+                ui.spacing_mut().interact_size.y = super::super::chip::HEIGHT;
+                for small in [false, true] {
+                    let mut when = RichText::new("Wed 18 Nov, 17:40").weak();
+                    if small {
+                        when = when.small();
+                    }
+                    let top = ui.cursor().top();
+                    let (date, chip) = super::super::results::when_row(ui, when, true);
+                    let chip = chip.unwrap();
+                    // A row (two lines at most), not the rest of the card.
+                    let tall = ui.cursor().top() - top;
+                    assert!(tall < 90.0, "{width} at {scale}: {tall} high");
+                    let at = format!("{width} at {scale}: {:?} and {:?}", date.rect, chip.rect);
+                    assert!(!date.rect.intersects(chip.rect), "{at}");
+                    assert!(chip.rect.right() <= width, "{at}");
+                    let (alone, none) =
+                        super::super::results::when_row(ui, RichText::new("x"), false);
+                    assert!(none.is_none() && alone.rect.left() <= date.rect.left() + 0.5);
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn the_sync_words_keep_clear_of_sync_now_on_a_narrow_screen_with_large_text() {
+        for (width, scale) in [(411.0, 1.0), (256.0, 1.0), (256.0, 1.3), (200.0, 1.3)] {
+            in_a_frame(width, scale, |ui| {
+                for spinning in [false, true] {
+                    let top = ui.cursor().top();
+                    let (words, button) = super::super::results::words_and_sync_now(
+                        ui,
+                        spinning,
+                        "A test is running on the watch",
+                    );
+                    let at = format!("{width} at {scale}: {:?} and {:?}", words.rect, button.rect);
+                    assert!(!words.rect.intersects(button.rect), "{at}");
+                    assert!(button.rect.right() <= width, "{at}");
+                    let tall = ui.cursor().top() - top;
+                    assert!(tall < 150.0, "{width} at {scale}: {tall} high");
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn the_levels_table_fits_long_times_on_a_narrow_screen() {
+        // Twelve levels with GPS, to 12:39: "10:33–11:37" in the body face
+        // is about 94 pt, past the GPS layout's 34% of a 320 dp phone's
+        // 256 pt card.
+        let rows: Vec<LevelRow> = (1..=12)
+            .map(|l| LevelRow {
+                level: l,
+                start_s: f64::from(l - 1) * 63.3,
+                end_s: f64::from(l) * 63.3,
+                avg_hr: Some(188),
+                max_hr: Some(199),
+                gps_kmh: Some(12.5),
+            })
+            .collect();
+        // And with the phone's font size at its largest the app follows.
+        for (width, scale) in [
+            (256.0_f32, 1.0),
+            (300.0, 1.0),
+            (379.0, 1.0),
+            (300.0, 1.3),
+            (256.0, 1.3),
+        ] {
+            in_a_frame(width + 40.0, scale, |ui| {
+                let t = Table::lay_out(ui, &rows, width);
+                let sum: f32 = t.widths.iter().sum();
+                assert!(sum <= width + 0.01, "{width} at {scale}: {t:?}");
+                // No cell runs into the next column.
+                assert_eq!(
+                    t.ends_only,
+                    width == 256.0 && scale > 1.0,
+                    "{width} at {scale}"
+                );
+                for row in &rows {
+                    let cells = t.cells(row);
+                    for (c, w) in t.widths.iter().enumerate().take(4) {
+                        let text = ui
+                            .painter()
+                            .layout_no_wrap(cells[c].clone(), t.fonts[c].clone(), Color32::WHITE)
+                            .size()
+                            .x;
+                        assert!(
+                            text + COLUMN_GAP <= w + 0.01,
+                            "{width}: {:?} in {w}",
+                            cells[c]
+                        );
+                    }
+                }
+            });
+        }
+        // Columns only widen as far as they need, from the others' spare.
+        let w = fit_columns(256.0, &column_widths(true), &[20.0, 94.0, 30.0, 30.0, 32.0]).unwrap();
+        assert!(
+            w[1] >= 100.0 && (w.iter().sum::<f32>() - 256.0).abs() < 0.01,
+            "{w:?}"
+        );
+        assert_eq!(
+            fit_columns(100.0, &column_widths(true), &[20.0, 94.0, 30.0, 30.0, 32.0]),
+            None
+        );
+        let roomy = fit_columns(400.0, &column_widths(false), &[20.0, 60.0, 30.0, 30.0]).unwrap();
+        for (w, p) in roomy.iter().zip(column_widths(false)) {
+            assert!((w - p * 400.0).abs() < 0.01, "{roomy:?}");
+        }
+    }
+
     #[test]
     fn the_option_is_interface_htmls_50_percent() {
         let mut s = State::default();
@@ -439,5 +721,9 @@ mod tests {
         let log = beeplog::parse("start,0,0,20\n0.0,90,80,1,0,0.0\nend,9.5,1,1,20,95,92\n");
         assert_eq!(end_s(&log), 9.5);
         assert_eq!(end_s(&beeplog::parse("")), 0.0);
+        let log = beeplog::parse("start,0,0,20\n1000000000000.0,120,90,1,1,20.0\n");
+        assert_eq!(end_s(&log), beeplog::LONGEST_TEST_S);
+        let log = beeplog::parse("start,0,0,20\nInfinity,120,90,1,1,20.0\n");
+        assert_eq!(end_s(&log), 0.0);
     }
 }

@@ -12,8 +12,9 @@
 //! Each seeded run throws a while of chaos at both ends (tests run, are
 //! cancelled and deleted on the watch, results deleted on the phone, the
 //! settings changed, the phone app killed and started again, the watch
-//! disconnecting or going back to the clock mid-transfer, other apps
-//! sending junk), then lets the link settle and
+//! disconnecting or going back to the clock mid-transfer, a bad patch where
+//! its log pieces are lost, other apps sending junk), then lets the link
+//! settle and
 //! checks that the phone ended up with what the watch has: every result
 //! the watch lists and the phone didn't delete, with its log byte for byte,
 //! nothing deleted on either side, the results the watch forgot kept, and
@@ -53,6 +54,8 @@ impl Rng {
 }
 
 const PIECE: usize = 1000;
+/// The step of each run's bad patch ([`World::step`]).
+const BAD_PATCH: usize = 700;
 const SKIP: usize = 10;
 const KEEP: usize = 30;
 
@@ -544,7 +547,9 @@ struct Seen {
     phone_deletes: usize,
     forged: usize,
     busy: usize,
+    /// Files given up on, counted once a round (by the round's end).
     gave_up: usize,
+    gave_up_at: Option<i64>,
     /// Transfers a load() on the watch cut off.
     loads: usize,
 }
@@ -556,6 +561,11 @@ struct World {
     link: Link,
     now: i64,
     seen: Seen,
+    /// Until this step, the log pieces the watch sends are lost (a bad
+    /// patch of its radio), so transfers come up short and are given up
+    /// on.
+    lossy_logs_until: usize,
+    lossy_logs: bool,
 }
 
 impl World {
@@ -579,6 +589,8 @@ impl World {
             },
             now: 1_781_400_000_000,
             seen: Seen::default(),
+            lossy_logs_until: 0,
+            lossy_logs: false,
         }
     }
 
@@ -620,6 +632,9 @@ impl World {
         let Some(line) = Link::take(&mut self.link.to_phone, self.link.lossy, &mut self.rng) else {
             return false;
         };
+        if self.lossy_logs && line.contains("\"event\":\"log\"") && !line.contains(HISTORY) {
+            return true;
+        }
         self.phone.line(&line, self.now, &mut self.link);
         true
     }
@@ -631,6 +646,17 @@ impl World {
     /// One step of chaos: 50 ms go by.
     fn step(&mut self, i: usize) {
         self.now += 50;
+        if i == BAD_PATCH {
+            // A test ends with the watch connected and the phone asking,
+            // and then its log's pieces are lost for a while.
+            self.watch.connect(true);
+            let r = &mut self.rng;
+            self.watch.start_test(r);
+            self.watch.stop_test(r);
+            self.phone(Input::SyncNow);
+            self.lossy_logs_until = i + 200;
+        }
+        self.lossy_logs = i < self.lossy_logs_until;
         self.watch.tick();
         self.flush_watch();
         for _ in 0..2 {
@@ -643,7 +669,12 @@ impl World {
             self.phone(Input::Tick);
         }
         let r = &mut self.rng;
-        match r.below(1000) {
+        let roll = r.below(1000);
+        // In the bad patch nothing else happens (no tests, no changes, no
+        // syncs asked for, no restarts, each of which starts a round
+        // afresh), so the transfers it spoils are given up on.
+        let roll = if self.lossy_logs { 999 } else { roll };
+        match roll {
             0..=14 => self.watch.start_test(r),
             15..=39 => self.watch.stop_test(r),
             40 => self.watch.cancel_test(),
@@ -723,7 +754,12 @@ impl World {
         self.flush_watch();
         match self.phone.engine.progress() {
             Progress::Busy => self.seen.busy += 1,
-            Progress::Done { failed, .. } if !failed.is_empty() => self.seen.gave_up += 1,
+            Progress::Done { at_ms, failed }
+                if !failed.is_empty() && self.seen.gave_up_at != Some(*at_ms) =>
+            {
+                self.seen.gave_up += failed.len();
+                self.seen.gave_up_at = Some(*at_ms);
+            }
             _ => {}
         }
         if i.is_multiple_of(25) {
@@ -740,6 +776,8 @@ impl World {
     /// left in flight. Returns the lines the phone sent.
     fn settle(&mut self) -> Vec<String> {
         self.link.lossy = false;
+        self.lossy_logs = false;
+        self.lossy_logs_until = 0;
         self.watch.connect(true);
         let mut rng = Rng::new(self.now as u64);
         self.watch.stop_test(&mut rng);
@@ -793,6 +831,13 @@ impl World {
         );
         for f in tombstones.keys() {
             assert!(!results.contains_key(f), "{}", ctx(&format!("{f} is back")));
+            // Its log went from the watch too, even one the watch's
+            // history had forgotten (lib.js keeps those files).
+            assert!(
+                !self.watch.files.contains_key(f),
+                "{}",
+                ctx(&format!("{f} deleted, but its log is still on the watch"))
+            );
             assert!(
                 !listed.iter().any(|e| &e.f == f),
                 "{}",
@@ -949,7 +994,7 @@ fn the_phone_converges_to_the_watch_over_a_bad_link() {
     // The runs went through every kind of trouble, often.
     eprintln!(
         "results {}, kept after the watch forgot them {}, tombstones {} ({} from the watch), \
-         deletes on the phone {}, restarts {}, forged events {}, steps busy {}, steps given up {}, \
+         deletes on the phone {}, restarts {}, forged events {}, steps busy {}, files given up on {}, \
          transfers cut off by a load() {}",
         totals[0],
         totals[1],
@@ -1029,6 +1074,68 @@ fn a_result_deleted_on_the_phone_never_comes_back() {
     w.settle();
     assert!(w.phone.store.result(&f).is_none());
     assert_eq!(w.phone.store.tombstones()[&f], Tombstone::Done);
+}
+
+/// Delivers what's in flight and ticks the watch until nothing is left,
+/// with no input from the phone's user (the app closed).
+fn run_by_itself(w: &mut World) {
+    for _ in 0..1_000_000 {
+        if w.deliver_to_watch() || w.deliver_to_phone() {
+            continue;
+        }
+        if w.watch.xfer.is_none() {
+            return;
+        }
+        w.now += 50;
+        w.watch.tick();
+        w.flush_watch();
+    }
+    panic!("never settled");
+}
+
+#[test]
+fn a_delete_made_while_the_watch_is_away_reaches_it_when_it_connects() {
+    // Three results, then thirty more: the watch's history has forgotten
+    // the first three (the phone keeps them), whose logs are still on it.
+    let mut w = World::with(8, 3);
+    w.settle();
+    let forgotten = w.watch.history.clone().unwrap()[2].f.clone();
+    for _ in 0..KEEP {
+        let r = &mut w.rng;
+        w.watch.start_test(r);
+        w.watch.stop_test(r);
+    }
+    w.settle();
+    let listed = w.watch.history.clone().unwrap();
+    assert!(w.watch.dropped.contains(&forgotten));
+    assert!(w.watch.files.contains_key(&forgotten));
+    let kept = listed[3].f.clone();
+    // The watch goes out of range; one of each is deleted on the phone,
+    // and Gadgetbridge drops the syncs.
+    w.watch.connect(false);
+    w.phone(Input::Delete(forgotten.clone()));
+    w.phone(Input::Delete(kept.clone()));
+    while w.deliver_to_watch() {}
+    // It comes back and says state by itself; the app stays closed (no
+    // Opened, no Sync now).
+    w.now += 3_600_000;
+    w.watch.connect(true);
+    w.flush_watch();
+    run_by_itself(&mut w);
+    for f in [&forgotten, &kept] {
+        assert!(!w.watch.files.contains_key(f), "{f} still on the watch");
+        assert_eq!(w.phone.store.tombstones()[f], Tombstone::Done, "{f}");
+    }
+    assert!(
+        !w.watch
+            .history
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|e| e.f == kept)
+    );
+    assert_eq!(w.phone.store.pending_deletes(), Vec::<String>::new());
+    w.check(8);
 }
 
 #[test]

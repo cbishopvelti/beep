@@ -20,20 +20,44 @@ pub enum Kind {
 }
 
 pub fn show(ui: &mut egui::Ui, text: &str, kind: Kind) -> Response {
-    paint(ui, text, kind, None, HEIGHT)
+    paint(ui, text, kind, None, HEIGHT, None)
 }
 
 /// A chip in `color`: its edge, its text and a faint fill, so it stands
 /// out from the plain ones ("Best").
 pub fn tinted(ui: &mut egui::Ui, text: &str, kind: Kind, color: Color32) -> Response {
-    paint(ui, text, kind, Some(color), HEIGHT)
+    paint(ui, text, kind, Some(color), HEIGHT, None)
 }
 
 /// A chip a touch target high (`height`), for a choice made with it (the
-/// watch's course), filled with the accent when `on`.
+/// watch's course), filled with the accent when `on`, and selected (for
+/// TalkBack, and the tests) then.
 pub fn choice(ui: &mut egui::Ui, text: &str, on: bool, height: f32) -> Response {
     let tint = on.then_some(super::ACCENT);
-    paint(ui, text, Kind::Button, tint, height)
+    paint(ui, text, Kind::Button, tint, height, Some(on))
+}
+
+/// A chip to tap, not a choice ("⟳ Sync now"), a touch target high.
+pub fn button(ui: &mut egui::Ui, text: &str, height: f32) -> Response {
+    paint(ui, text, Kind::Button, None, height, None)
+}
+
+/// How wide a chip of `height` with `text` is, before it's drawn (to leave
+/// room for it).
+pub fn width(ui: &egui::Ui, text: &str, height: f32) -> f32 {
+    let (font, pad) = font_and_pad(ui, height);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER);
+    pad + galley.size().x + pad
+}
+
+fn font_and_pad(ui: &egui::Ui, height: f32) -> (egui::FontId, f32) {
+    if height > HEIGHT {
+        (TextStyle::Body.resolve(ui.style()), 2.0 * PAD)
+    } else {
+        (TextStyle::Small.resolve(ui.style()), PAD)
+    }
 }
 
 fn paint(
@@ -42,18 +66,14 @@ fn paint(
     kind: Kind,
     tint: Option<Color32>,
     height: f32,
+    selected: Option<bool>,
 ) -> Response {
-    let font = if height > HEIGHT {
-        TextStyle::Body.resolve(ui.style())
-    } else {
-        TextStyle::Small.resolve(ui.style())
-    };
+    let (font, pad) = font_and_pad(ui, height);
     let galley = ui.painter().layout_no_wrap(
         text.to_owned(),
         font,
         tint.unwrap_or(ui.visuals().text_color()),
     );
-    let pad = if height > HEIGHT { 2.0 * PAD } else { PAD };
     let size = Vec2::new(pad + galley.size().x + pad, height);
     let sense = if kind == Kind::Label {
         Sense::hover()
@@ -62,15 +82,15 @@ fn paint(
     };
     let (rect, body) = ui.allocate_exact_size(size, sense);
     body.widget_info(|| {
-        egui::WidgetInfo::labeled(
-            if kind == Kind::Label {
-                egui::WidgetType::Label
-            } else {
-                egui::WidgetType::Button
-            },
-            ui.is_enabled(),
-            text,
-        )
+        let typ = if kind == Kind::Label {
+            egui::WidgetType::Label
+        } else {
+            egui::WidgetType::Button
+        };
+        match selected {
+            Some(on) => egui::WidgetInfo::selected(typ, ui.is_enabled(), on, text),
+            None => egui::WidgetInfo::labeled(typ, ui.is_enabled(), text),
+        }
     });
     if ui.is_rect_visible(rect) {
         let visuals = ui.visuals();

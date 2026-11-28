@@ -150,12 +150,14 @@ fn watch_lines_txt_leaves_the_exchanges_results_stored() {
         now += 50;
         sent.extend(engine.handle(&store, event, now).lines);
     }
-    // What the phone asked for along the way: the history (after each of
-    // the first two states, the second replacing the first), then A, then B.
+    // What the phone asked for along the way: C's delete again after the
+    // first state (it can't tell an answer from a state the watch sent
+    // unasked, so it waits for the next), the history after the second,
+    // then A, then B.
     assert_eq!(
         sent[1..],
         [
-            link::get_line(HISTORY, 0),
+            link::sync_line(&[C.into()]),
             link::get_line(HISTORY, 0),
             link::get_line(A, 0),
             link::get_line(B, 0),

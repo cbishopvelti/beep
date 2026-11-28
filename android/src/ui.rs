@@ -200,7 +200,10 @@ pub struct App {
     /// The generation [`View`] was loaded at.
     generation: Option<u64>,
     last_tick: Option<Instant>,
-    /// Scroll the page back to the top (after changing page).
+    /// When the phone's font size was last looked at.
+    text_checked: Option<Instant>,
+    /// Scroll the page back to the top (after opening a page other than
+    /// Results, which keeps its place: back from a result is where it was).
     to_top: bool,
 }
 
@@ -222,6 +225,7 @@ impl App {
             opened: false,
             generation: None,
             last_tick: None,
+            text_checked: None,
             to_top: false,
         }
     }
@@ -234,10 +238,10 @@ impl App {
     /// Opens `page` (and what it shows read again).
     pub fn open(&mut self, page: Page) {
         if page != self.page {
+            self.to_top = page != Page::Results;
             self.page = page;
             self.result = result::State::default();
             self.error = None;
-            self.to_top = true;
         }
         self.menu_open = false;
         self.generation = None;
@@ -334,6 +338,18 @@ impl App {
             return;
         }
         self.themer.apply(ctx);
+        // The phone's font size, followed when it's changed in its
+        // settings (the activity isn't made again for it: `configChanges`).
+        if self
+            .text_checked
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(2))
+        {
+            self.text_checked = Some(Instant::now());
+            let scale = scale_for(platform::font_scale());
+            if scale != text_scale() {
+                set_text_sizes(ctx, scale);
+            }
+        }
         if !self.opened {
             self.opened = true;
             platform::dispatch(Input::Opened);
@@ -407,7 +423,16 @@ impl App {
                     .inner_margin(Margin::symmetric(MARGIN as i8, 0)),
             )
             .show(ctx, |ui| {
-                let mut scroll = egui::ScrollArea::vertical().auto_shrink([false, false]);
+                // Results scrolls on its own, so it keeps its place while
+                // a result (or another page) is open.
+                let id = if self.page == Page::Results {
+                    "results"
+                } else {
+                    "page"
+                };
+                let mut scroll = egui::ScrollArea::vertical()
+                    .id_salt(id)
+                    .auto_shrink([false, false]);
                 if std::mem::take(&mut self.to_top) {
                     scroll = scroll.vertical_scroll_offset(0.0);
                 }
@@ -506,7 +531,7 @@ impl App {
                             let on = self.page == page
                                 || (page == Page::Results && matches!(self.page, Page::Result(_)));
                             let text = RichText::new(format!("{}   {}", page.icon(), page.title()))
-                                .size(18.0);
+                                .size(18.0 * text_scale());
                             let text = if on {
                                 text.color(ACCENT).strong()
                             } else {
@@ -549,26 +574,16 @@ impl eframe::App for App {
     }
 }
 
-/// Android-like sizes, as blink's: 17 sp body text, 48 dp touch targets,
-/// and the bold face.
-fn apply_theme(ctx: &egui::Context) {
+/// Android-like sizes, as blink's: 17 sp body text (times the phone's font
+/// size setting, [`set_text_sizes`]), 48 dp touch targets, and the bold
+/// face.
+pub(crate) fn apply_theme(ctx: &egui::Context) {
     add_fonts(ctx);
     if let Some(density) = platform::density() {
         ctx.set_pixels_per_point(density);
     }
+    set_text_sizes(ctx, scale_for(platform::font_scale()));
     ctx.all_styles_mut(|style| {
-        use egui::FontFamily::Proportional;
-        style.text_styles = [
-            (TextStyle::Heading, FontId::new(26.0, Proportional)),
-            (TextStyle::Body, FontId::new(17.0, Proportional)),
-            (TextStyle::Button, FontId::new(17.0, Proportional)),
-            (
-                TextStyle::Monospace,
-                FontId::new(15.0, egui::FontFamily::Monospace),
-            ),
-            (TextStyle::Small, FontId::new(14.0, Proportional)),
-        ]
-        .into();
         let s = &mut style.spacing;
         s.item_spacing = Vec2::new(10.0, 12.0);
         s.button_padding = Vec2::new(18.0, 12.0);
@@ -619,9 +634,53 @@ fn add_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-/// The medium (bold) face at `size`.
+/// The medium (bold) face at `size`, times the phone's text size
+/// ([`text_scale`]).
 pub(crate) fn medium(size: f32) -> FontId {
-    FontId::new(size, egui::FontFamily::Name(BOLD.into()))
+    FontId::new(size * text_scale(), egui::FontFamily::Name(BOLD.into()))
+}
+
+/// The most and least the phone's font size setting scales the text by:
+/// past 1.3 the pages' rows (a result card's score beside its course, the
+/// levels table on a small phone) no longer fit.
+pub const TEXT_SCALE: std::ops::RangeInclusive<f32> = 0.85..=1.3;
+
+/// The text scale applied ([`set_text_sizes`]), as f32 bits.
+static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
+
+/// What the text sizes are multiplied by: Android's font size setting
+/// (`Configuration.fontScale`), kept within [`TEXT_SCALE`]; 1 until known.
+pub(crate) fn text_scale() -> f32 {
+    f32::from_bits(SCALE.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The scale for the phone's font size setting `asked` (1 when it can't
+/// say), within [`TEXT_SCALE`].
+pub fn scale_for(asked: Option<f32>) -> f32 {
+    asked
+        .filter(|s| s.is_finite() && *s > 0.0)
+        .unwrap_or(1.0)
+        .clamp(*TEXT_SCALE.start(), *TEXT_SCALE.end())
+}
+
+/// The text styles at `scale` times the app's own sizes (17 sp body text,
+/// as blink's), and [`medium`]'s too from now on.
+pub fn set_text_sizes(ctx: &egui::Context, scale: f32) {
+    SCALE.store(scale.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    ctx.all_styles_mut(|style| {
+        use egui::FontFamily::Proportional;
+        style.text_styles = [
+            (TextStyle::Heading, FontId::new(26.0 * scale, Proportional)),
+            (TextStyle::Body, FontId::new(17.0 * scale, Proportional)),
+            (TextStyle::Button, FontId::new(17.0 * scale, Proportional)),
+            (
+                TextStyle::Monospace,
+                FontId::new(15.0 * scale, egui::FontFamily::Monospace),
+            ),
+            (TextStyle::Small, FontId::new(14.0 * scale, Proportional)),
+        ]
+        .into();
+    });
 }
 
 /// A card, as blink's: a faint fill, a hairline edge, round corners.
@@ -779,6 +838,24 @@ mod tests {
         app.open(Page::Result("beeptest.1.csv".into()));
         app.ask_delete();
         assert_eq!(app.dialog, Some(Dialog::Delete("beeptest.1.csv".into())));
+    }
+
+    #[test]
+    fn the_text_follows_the_phones_font_size_within_reason() {
+        assert_eq!(scale_for(None), 1.0);
+        assert_eq!(scale_for(Some(1.15)), 1.15);
+        assert_eq!(scale_for(Some(2.0)), 1.3);
+        assert_eq!(scale_for(Some(0.5)), 0.85);
+        assert_eq!(scale_for(Some(f32::NAN)), 1.0);
+        let ctx = egui::Context::default();
+        set_text_sizes(&ctx, 1.3);
+        let body = ctx.style().text_styles[&TextStyle::Body].size;
+        let bold = medium(16.0).size;
+        set_text_sizes(&ctx, 1.0);
+        assert!((body - 22.1).abs() < 1e-4, "{body}");
+        assert!((bold - 20.8).abs() < 1e-4, "{bold}");
+        assert_eq!(ctx.style().text_styles[&TextStyle::Body].size, 17.0);
+        assert_eq!(medium(16.0).size, 16.0);
     }
 
     #[test]

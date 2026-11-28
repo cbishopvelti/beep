@@ -220,6 +220,62 @@ impl Status {
     }
 }
 
+/// How the direct link asks Android for the watch it connects to
+/// (`connectGatt` with `autoConnect`, which only finds a device whose
+/// address type Android knows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// Android 13 and later: `getRemoteLeDevice(address, address_type)`,
+    /// so Android is told the type ([`address_type`]) and needn't have seen
+    /// the watch since Bluetooth came on.
+    LeDevice { address_type: i32 },
+    /// `getRemoteDevice(address)`: Android has the type, from a scan that
+    /// saw the watch, or a connection, since Bluetooth came on.
+    Device,
+    /// `getRemoteDevice(address)` as well, but Android may not know the
+    /// type (the phone restarted, or Bluetooth went off and on: it forgets
+    /// devices it isn't paired with, and the watch isn't paired), and then
+    /// takes the address as public and never finds a watch whose address is
+    /// random. So a scan looks for the watch too, and once it sees it
+    /// (which tells Android its type) the connection is made again.
+    DeviceAndScan,
+}
+
+/// How to reach the watch at `address` on Android `sdk`, `seen` saying
+/// whether a scan saw it (or the link connected to it) since Bluetooth
+/// last came on and this process started.
+pub fn reach(sdk: i32, address: &str, seen: bool) -> Reach {
+    if sdk >= 33 {
+        Reach::LeDevice {
+            address_type: address_type(address),
+        }
+    } else if seen {
+        Reach::Device
+    } else {
+        Reach::DeviceAndScan
+    }
+}
+
+/// `BluetoothDevice.ADDRESS_TYPE_PUBLIC`.
+pub const ADDRESS_TYPE_PUBLIC: i32 = 0;
+/// `BluetoothDevice.ADDRESS_TYPE_RANDOM`.
+pub const ADDRESS_TYPE_RANDOM: i32 = 1;
+
+/// Android's address type for a Bluetooth address "AA:BB:CC:DD:EE:FF":
+/// random when its top two bits are set, which is what a random static
+/// address has (a Bangle.js's, from its nRF52), public otherwise.
+pub fn address_type(address: &str) -> i32 {
+    let top = address
+        .get(..2)
+        .and_then(|b| u8::from_str_radix(b, 16).ok())
+        .unwrap_or(0);
+    if top & 0xc0 == 0xc0 {
+        ADDRESS_TYPE_RANDOM
+    } else {
+        ADDRESS_TYPE_PUBLIC
+    }
+}
+
 /// A watch the scan found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
@@ -686,5 +742,28 @@ mod tests {
             Status::Connected.sentence("Bangle.js 1a2b"),
             "Connected directly to Bangle.js 1a2b"
         );
+    }
+
+    #[test]
+    fn the_watch_is_reached_by_its_address_type_or_found_first() {
+        // A Bangle.js's address is random static: its top two bits set.
+        assert_eq!(address_type("E1:2F:0A:11:22:33"), ADDRESS_TYPE_RANDOM);
+        assert_eq!(address_type("c4:00:00:00:00:01"), ADDRESS_TYPE_RANDOM);
+        assert_eq!(address_type("00:1A:7D:DA:71:13"), ADDRESS_TYPE_PUBLIC);
+        assert_eq!(address_type("7F:00:00:00:00:00"), ADDRESS_TYPE_PUBLIC);
+        assert_eq!(address_type(""), ADDRESS_TYPE_PUBLIC);
+        // Android 13 and later are told the type, seen or not.
+        for seen in [false, true] {
+            assert_eq!(
+                reach(33, "E1:2F:0A:11:22:33", seen),
+                Reach::LeDevice {
+                    address_type: ADDRESS_TYPE_RANDOM
+                }
+            );
+        }
+        // Before, a watch not seen since Bluetooth came on is looked for
+        // as well.
+        assert_eq!(reach(32, "E1:2F:0A:11:22:33", false), Reach::DeviceAndScan);
+        assert_eq!(reach(26, "E1:2F:0A:11:22:33", true), Reach::Device);
     }
 }

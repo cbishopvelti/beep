@@ -16,6 +16,17 @@ jobs:
           node-version: 22
       - run: sh tests/setup-emulator.sh
       - run: npm test
+      # The phone app's port of beeplog.js (android/src/beeplog.rs) is
+      # tested against files beeplog.js made: they must be what it makes
+      # now, or a change here leaves the port behind with every check green.
+      - name: The beeplog.js fixtures are up to date
+        run: |
+          node tests/fixtures/beeplog/make.js
+          git add -N tests/fixtures/beeplog
+          git diff --exit-code --stat tests/fixtures/beeplog || {
+            echo "::error::beeplog.js or lib.js changed: run node tests/fixtures/beeplog/make.js, then cd android && cargo test"
+            exit 1
+          }
       - run: npm run bundle
       - uses: actions/upload-artifact@v4
         with:

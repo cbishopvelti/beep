@@ -105,6 +105,14 @@ starts the phone's next round, which asks for the rest from what it has.
 Without it, a sync with the phone app closed (nothing ticks there) would wait
 for the next test.
 
+The phone can't tell a `state` that answers its `beeptest-sync` from one the
+watch sent unasked, and a line sent while no watch is connected is dropped
+(Gadgetbridge drops what it can't deliver). So with deletes pending it
+answers a `state` with a `beeptest-sync` carrying them, and only the `state`
+that answers that one (within 10 s) can settle them: a history fetched then
+that doesn't list them, or the same `hist` for one the watch had already
+forgotten (whose log file `lib.js` keeps until a delete erases it).
+
 The phone's side (when it syncs, how it resumes a log from the size of what
 it has, what it checks) is in `android/README.md`.
 
@@ -156,6 +164,12 @@ On the watch, with the Web IDE connected instead,
 the console.
 
 ## Installing development builds
+
+The watch takes one Bluetooth connection at a time, and doesn't show up to
+connect to while a phone has it: disconnect it in Gadgetbridge first, or,
+with the phone app's direct link on, turn that switch off (or the phone's
+Bluetooth) and on again afterwards, since the phone takes the watch back as
+soon as it's free.
 
 **One click (easiest).** Open
 [cbishopvelti.github.io/beep](https://cbishopvelti.github.io/beep/) in

@@ -108,18 +108,25 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
         let series = chart::progress_series(&app.view.results);
         card(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
-            ui.label(RichText::new("Progress").font(medium(16.0)).strong());
+            // The units by the heading, so a legend with long speed
+            // progressions can take its own lines without running into them.
+            ui.scope(|ui| {
+                // No taller than the heading (a row is a touch's height
+                // at the least).
+                ui.spacing_mut().interact_size.y = 0.0;
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Progress").font(medium(16.0)).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("shuttles").small().weak());
+                    });
+                });
+            });
             chart::progress(ui, &series, 130.0);
             let items: Vec<_> = series
                 .iter()
                 .map(|s| (chart::series_color(s.m, s.p), chart::series_label(s.m, s.p)))
                 .collect();
-            ui.horizontal(|ui| {
-                chart::legend(ui, &items);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("shuttles").small().weak());
-                });
-            });
+            chart::legend(ui, &items);
         });
         ui.add_space(4.0);
     }
@@ -135,6 +142,38 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// A card's first row: when, and "★ Best" at the end of it. The date
+/// wraps in the room the chip leaves rather than running under it (a
+/// narrow phone with large text). The date's response, and the chip's.
+pub(super) fn when_row(
+    ui: &mut egui::Ui,
+    when: RichText,
+    best: bool,
+) -> (egui::Response, Option<egui::Response>) {
+    const BEST: &str = "★ Best";
+    ui.horizontal(|ui| {
+        let chip_w = if best {
+            chip::width(ui, BEST, chip::HEIGHT) + ui.spacing().item_spacing.x
+        } else {
+            0.0
+        };
+        let room = (ui.available_width() - chip_w).max(0.0);
+        let date = ui
+            .scope(|ui| {
+                ui.set_max_width(room);
+                ui.add(egui::Label::new(when).wrap())
+            })
+            .inner;
+        let chip = ui
+            .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                best.then(|| chip::tinted(ui, BEST, chip::Kind::Label, status::green_text(ui)))
+            })
+            .inner;
+        (date, chip)
+    })
+    .inner
+}
+
 /// A result's card; true when it was tapped.
 fn result_card(ui: &mut egui::Ui, r: &TestResult, best: bool, now: i64) -> bool {
     let text = card_text(r, now);
@@ -143,14 +182,7 @@ fn result_card(ui: &mut egui::Ui, r: &TestResult, best: bool, now: i64) -> bool 
         // card is the target.
         ui.spacing_mut().interact_size.y = 20.0;
         ui.spacing_mut().item_spacing.y = 2.0;
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(&text.when).small().weak());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if best {
-                    chip::tinted(ui, "★ Best", chip::Kind::Label, super::GREEN);
-                }
-            });
-        });
+        when_row(ui, RichText::new(&text.when).small().weak(), best);
         ui.horizontal(|ui| {
             ui.label(RichText::new(&text.score).font(medium(34.0)).strong());
             ui.add_space(2.0);
@@ -194,27 +226,74 @@ fn result_card(ui: &mut egui::Ui, r: &TestResult, best: bool, now: i64) -> bool 
 /// banner says a test is running, it doesn't say it again.
 fn sync_row(ui: &mut egui::Ui, running: bool) {
     let progress = platform::progress();
-    ui.horizontal(|ui| {
-        ui.set_min_height(40.0);
-        if progress.active() {
-            super::spinner(ui);
-        }
-        let words = progress.words();
-        let words = if running && progress == Progress::Busy {
-            "Syncs when it ends".to_string()
-        } else if words.is_empty() {
-            "Not synced yet".to_string()
-        } else {
-            words
-        };
-        ui.add(egui::Label::new(RichText::new(words).weak()).truncate());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if chip::choice(ui, "⟳ Sync now", false, 40.0).clicked() {
-                platform::dispatch(Input::SyncNow);
-            }
-        });
-    });
+    let words = progress.words();
+    let words = if running && progress == Progress::Busy {
+        "Syncs when it ends".to_string()
+    } else if words.is_empty() {
+        "Not synced yet".to_string()
+    } else {
+        words
+    };
+    if words_and_sync_now(ui, progress.active(), &words)
+        .1
+        .clicked()
+    {
+        platform::dispatch(Input::SyncNow);
+    }
     ui.add_space(4.0);
+}
+
+/// How the sync is going, and "⟳ Sync now" at the end of the row: the
+/// words wrap in the room the button leaves, or, when that's under half
+/// the row (a narrow phone with large text), have the row and the button
+/// goes under them. The words' response, and the button's.
+pub(super) fn words_and_sync_now(
+    ui: &mut egui::Ui,
+    spinning: bool,
+    words: &str,
+) -> (egui::Response, egui::Response) {
+    const SYNC_NOW: &str = "⟳ Sync now";
+    const TALL: f32 = 40.0;
+    let button_w = chip::width(ui, SYNC_NOW, TALL) + ui.spacing().item_spacing.x;
+    let beside = ui.available_width() - button_w >= ui.available_width() / 2.0;
+    let sync_now = |ui: &mut egui::Ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            chip::button(ui, SYNC_NOW, TALL)
+        })
+        .inner
+    };
+    let (words, button) = ui
+        .horizontal(|ui| {
+            ui.set_min_height(TALL);
+            if spinning {
+                super::spinner(ui);
+            }
+            let room = if beside {
+                ui.available_width() - button_w
+            } else {
+                ui.available_width()
+            };
+            let words = ui
+                .scope(|ui| {
+                    ui.set_max_width(room.max(0.0));
+                    ui.add(egui::Label::new(RichText::new(words).weak()).wrap())
+                })
+                .inner;
+            (words, beside.then(|| sync_now(ui)))
+        })
+        .inner;
+    let button = match button {
+        Some(button) => button,
+        None => {
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), TALL),
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| chip::button(ui, SYNC_NOW, TALL),
+            )
+            .inner
+        }
+    };
+    (words, button)
 }
 
 /// The banner while a test runs on the watch.
@@ -249,14 +328,25 @@ fn how_to_connect(app: &mut App, ui: &mut egui::Ui) {
     card(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         ui.label(
+            RichText::new(format!(
+                "Beep Test {} or later on the watch",
+                super::watch::NEEDS
+            ))
+            .font(medium(16.0))
+            .strong(),
+        );
+        ui.label(super::watch::OLDER);
+    });
+    card(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.label(
             RichText::new("Through Gadgetbridge")
                 .font(medium(16.0))
                 .strong(),
         );
         ui.label(RichText::new(
             "Connect the watch in Gadgetbridge, and turn on \"Allow Intents\" in \
-                 Gadgetbridge's settings for the Bangle.js. Beep Test must be installed on \
-                 the watch.",
+                 Gadgetbridge's settings for the Bangle.js.",
         ));
     });
     card(ui, |ui| {

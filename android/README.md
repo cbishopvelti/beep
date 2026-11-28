@@ -28,10 +28,10 @@ The pages, from the menu (from the desktop build with demo data; more in `screen
 | `src/health.rs` | When the watch was last heard from and last synced (files in `health/`), how long ago that was in words, and times in the phone's time zone. |
 | `src/watch_ble.rs` | The direct link to the watch, without Gadgetbridge (Settings, off by default): the setting (in `watch.json`), what Settings and Watch say about it, and the bytes on the wire (writes in MTU-sized pieces with the watch's XON/XOFF, what it prints read back a line at a time, the clock line). See "The watch without Gadgetbridge" below. |
 | `src/platform/mod.rs` | The process's one store and sync engine: every input goes through `platform::dispatch`, which runs it under one lock and sends the lines it returns. The desktop's versions of the platform calls (they log). |
-| `src/platform/android.rs` | Android over JNI: sending a line (the Gadgetbridge broadcast, or the direct link), `WatchReceiver`'s broadcast (which needs no UI: the process may have started just for it), `BootReceiver`, the share sheet, the theme and the system bars, the back key on Results (`leave`), the safe area and the density. |
-| `src/platform/android/ble.rs` | The direct link's Bluetooth calls, ported from blink's: the GATT connection to the watch's UART service (`WatchGatt` reports it), the scan for watches (`WatchScan`), and `WatchService`, the foreground service that keeps it while the app is closed. |
+| `src/platform/android.rs` | Android over JNI: sending a line (the Gadgetbridge broadcast, or the direct link), `WatchReceiver`'s broadcast (which needs no UI: the process may have started just for it), `BootReceiver`, the share sheet, the theme and the system bars, the back key on Results (`leave`), the safe area, the density and the font size. |
+| `src/platform/android/ble.rs` | The direct link's Bluetooth calls, ported from blink's: the GATT connection to the watch's UART service (`WatchGatt` reports it), the scan for watches (`WatchScan`) for the picker and to find the watch again after Bluetooth restarts, whether Location is off where scanning needs it, and `WatchService`, the foreground service that keeps it while the app is closed. |
 | `src/platform/android/ui_loop.rs` | blink's event loop wrapper, which lets the loop sleep while the app is in the background (eframe 0.33 would otherwise spin a CPU core), and syncs when the app comes back to the front. |
-| `src/ui.rs` | The shell around the pages, as blink's: the theme and fonts, the cards and buttons, the header and the slide-out menu, the back key (the menu, then a pop-up, then back to Results; on Results it moves the app to the background, `platform::leave`), the safe area, and `Input::Opened` and `Input::Tick` for the sync engine. |
+| `src/ui.rs` | The shell around the pages, as blink's: the theme and fonts (the text sizes times the phone's font size setting, up to 1.3), the cards and buttons, the header and the slide-out menu, the back key (the menu, then a pop-up, then back to Results; on Results it moves the app to the background, `platform::leave`), the safe area, and `Input::Opened` and `Input::Tick` for the sync engine. |
 | `src/ui/results.rs` | Results, the first page: the running-test banner, what the sync is doing with Sync now, the progress chart, and a card per result, newest first, with "★ Best" on the best of each course and speed progression, and the speeds on a card that ran other than the standard ones. With no results, how to connect the watch. |
 | `src/ui/result.rs` | A result: the summary, the heart rate chart with the levels, the levels table, the "<50%" option, Share TCX and Share CSV, and Delete (asks first). A log that hasn't arrived, or that the watch doesn't have, gets a card saying why instead. |
 | `src/ui/watch.rs` | Watch: how it's connected, when it was last heard from and last synced, the watch app's version, Sync now, and the watch's course, GPS speed and, when its `state` says `p`, Speeds (sent with `beeptest-set`, shown as the watch has them once it answers). |
@@ -43,14 +43,14 @@ The pages, from the menu (from the desktop build with demo data; more in `screen
 | `src/ui/chip.rs` | From blink: the small outlined chips ("★ Best", "20 m" / "15 m", "Change" and "Allow"). |
 | `src/ui/demo.rs` | Demo data written through the store: a dozen results over five months (two on the faster speeds) with heart rate logs as the watch writes them (the desktop's `--demo`, and the UI tests). The phone never calls it. |
 | `src/bin/desktop.rs` | The same app in a desktop window, for working on it without a phone: `--demo` fills the data directory with demo results, and `BEEP_PAGE`, `BEEP_THEME`, `BEEP_SIZE` and `BEEP_SHOT` open a page and save a screenshot (below, and at the top of the file). |
-| `tests/sync.rs` | The sync engine against a fake watch (`sync.js` as the phone sees it, half the seeds with speed progressions and half without) over a link that loses, repeats and reorders lines, with the app killed, the watch going back to the clock mid-transfer, and forged events; `BEEP_SEEDS=500` runs more seeds. |
+| `tests/sync.rs` | The sync engine against a fake watch (`sync.js` as the phone sees it, half the seeds with speed progressions and half without) over a link that loses, repeats and reorders lines, with the app killed, the watch going back to the clock mid-transfer, a bad patch where its log pieces are lost, and forged events; and checks the phone ends with what the watch has, and the watch without the logs of anything deleted on the phone. `BEEP_SEEDS=500` runs more seeds. |
 | `tests/fixtures.rs` | The lines shared with the watch's tests (`tests/fixtures/` at the repo root; see "Shared fixtures" below). |
 | `tests/beeplog.rs` | The log port against the files `beeplog.js` wrote (`tests/fixtures/beeplog/`). |
-| `tests/ui_result.rs`, `tests/ui_watch.rs` | The pages clicked through headlessly (`egui_kittest`, no pixels) on the demo data: a result, sharing, deleting and the back key, a result on other speeds; the menu, the Watch page's settings waiting for the watch's answer (Speeds only while the watch has them), the running-test banner, and the theme. |
+| `tests/ui_result.rs`, `tests/ui_watch.rs`, `tests/ui_odd_logs.rs` | The pages clicked through headlessly (`egui_kittest`, no pixels) on the demo data: a result, the low-confidence option reaching the TCX, sharing, deleting and the back key, Results keeping its place, the progress chart's legend on a narrow screen, a result on other speeds; the menu, the Watch page's settings waiting for the watch's answer (and changed back before it), Speeds only while the watch has them, the running-test banner, and the theme; and a log with numbers no test has (a sample at 1e12 s, Infinity bpm), which opens and draws at once. |
 | `app/src/main/java/com/cbishopvelti/beep/WatchReceiver.java` | Gadgetbridge's broadcast of the watch's events (`com.cbishopvelti.beep.WATCH`), handed to Rust. |
 | `app/src/main/java/com/cbishopvelti/beep/BootReceiver.java` | After a reboot or an update of the app: Rust starts `WatchService` again if the direct link is on. |
 | `app/src/main/java/com/cbishopvelti/beep/WatchGatt.java` | The direct link's GATT callbacks (connection, MTU, services, descriptor, write done, data from the watch), each straight to Rust. |
-| `app/src/main/java/com/cbishopvelti/beep/WatchScan.java` | The scan for watches while Settings' picker is open: each named device's address, name and signal to Rust. |
+| `app/src/main/java/com/cbishopvelti/beep/WatchScan.java` | The scan for watches while Settings' picker is open, and while the direct link looks for the watch it waits for: each named device's address, name and signal to Rust. |
 | `app/src/main/java/com/cbishopvelti/beep/WatchService.java` | The foreground service that keeps the direct link while the app is closed; tells Rust when it starts and stops. |
 | `app/src/main/java/com/cbishopvelti/beep/ThemeStub.java` | Sets the status and navigation bar icons dark or light, on Android's UI thread. |
 | `app/src/main/java/com/cbishopvelti/beep/MainActivity.java` | The `NativeActivity` the launcher opens; its `onDestroy` ends the process (see "The Java side" below). |
@@ -134,7 +134,9 @@ BEEP_DATA=/tmp/beep-demo BEEP_PAGE=result BEEP_THEME=light BEEP_SHOT=result.png 
   WINIT_X11_SCALE_FACTOR=2 xvfb-run -a -s "-screen 0 1280x2000x24" cargo run -- --demo
 ```
 
-`BEEP_BLUETOOTH=off` makes Settings act as if Bluetooth wasn't allowed.
+`BEEP_BLUETOOTH=off` makes Settings act as if Bluetooth wasn't allowed, `BEEP_LOCATION=off` as if
+the phone's Location was off on Android 11 or earlier, and `BEEP_FONT_SCALE=1.3` is the phone's
+font size setting.
 
 ## Version
 
@@ -169,6 +171,13 @@ deletes the watch hasn't done yet, and the watch answers `state`. Then:
   deletes every result the watch says was deleted on it, with its log. While a test is running on
   the watch that's all: the watch would answer any `get` with `busy`, and it says `state` again
   when the test ends, which starts the next round.
+- If there are deletes the watch hasn't done yet, and this `state` isn't the answer (within 10 s)
+  to a `beeptest-sync` that the phone sent in answer to the last `state` with all of them, that
+  sync goes now, and the round waits for its answer. The phone can't tell an answer from a `state`
+  the watch sent by itself, and a sync sent while no watch was connected was dropped (Gadgetbridge
+  drops what it can't deliver); the watch is there now, so this one reaches it. So a delete made
+  while the watch was away goes to it as soon as it's back in touch, even with the app closed, and
+  only a history fetched after that (or the same `hist`) settles it.
 - If the watch's history isn't the one the phone last fetched whole (`hist`, its length and CRC),
   it's fetched again (`beeptest-get` `beeptest.json`), and taken in only when it arrived whole and
   its CRC matches: new results are added, known ones updated, and results the watch no longer
@@ -187,9 +196,11 @@ deletes the watch hasn't done yet, and the watch answers `state`. Then:
 - A `beeptest-sync` that gets no `state` within 10 s while the app is open shows as "The watch isn't
   answering" on Results and Watch.
 - A delete on the phone stays pending (in every `beeptest-sync`) until the watch is seen without
-  it: a history fetched that doesn't list it, or a `state` whose `hist` is the history last
-  fetched when that doesn't list it (a result the watch had already forgotten leaves its
-  history as it was).
+  it after it was sent it, as above: a history fetched in that round that doesn't list it, or a
+  `state` whose `hist` is the history last fetched when that doesn't list it (a result the watch
+  had already forgotten leaves its history as it was, but `lib.js` keeps its log file, which only
+  the delete erases). A delete made mid-round isn't settled by that round's history, which was
+  asked for before it.
 - Deleting the result whose log is being fetched ends the round; the watch's answer to the sync
   starts the next (or the pages say it isn't answering). A log that can't be marked as having
   none (the phone's storage full, say) is given up on for the round rather than asked for again
@@ -230,15 +241,30 @@ connection at a time, so Gadgetbridge has to let go of it first (disconnect it t
   so there it asks for that instead (the manifest asks for location on those versions only). It
   opens a pop-up that scans for `Bangle.js ...` watches, nearest first; tap one. A watch connected
   to Gadgetbridge (or anything else) doesn't advertise, so it isn't listed until Gadgetbridge lets
-  go of it.
+  go of it. Android 11 and earlier also find nothing while the phone's Location is off (and say
+  nothing about it), so the pop-up says to turn it on (`platform::location_off`).
 - **The connection** is `connectGatt` with `autoConnect`, so Android connects whenever the watch is
   about, and again after it goes out of range. It asks for a 131-byte MTU, finds the UART service,
   turns notifications on, and is up. A timer checks every 20 s while it's wanted, for Bluetooth
   turned back on or the permission granted later, and sends the clock again after a time zone
   change or the clock being set, as Gadgetbridge does.
+- **Finding the watch again** (`watch_ble::reach`): `autoConnect` only finds a device whose address
+  type Android knows, and Android forgets the type of a device it isn't paired with (the watch
+  isn't) when Bluetooth starts, after a reboot or turning it off and on. Taken as public, the
+  watch's random static address never matches. On Android 13 and later the device comes from
+  `getRemoteLeDevice(address, type)`, the type read off the address (its top two bits set:
+  random). Before 13, until a scan has seen the watch or the link has connected since Bluetooth
+  came on, a scan filtered by the watch's name (so it runs with the screen off) looks for it
+  beside the waiting connection, and once it sees the watch the connection is made again. A
+  connection still waiting after 5 minutes is made again the same way, looking for the watch too.
+  On Android 10 and 11 that scan may get nothing from the background until the app is opened
+  (location from the background).
 - **While the app is closed**, `WatchService` (a `connectedDevice` foreground service, started by
   the app and by `BootReceiver` after a reboot or an update) keeps the app running with a quiet
-  "Connected to your watch" notification in its own channel, as Gadgetbridge's own service does.
+  "Watch link on" notification in its own channel, as Gadgetbridge's own service does.
+- **Freeing the watch**: while the switch is on, the phone takes the watch back as soon as it
+  advertises, so the App Loader or the Web IDE on a computer can't connect to it. Turn the switch
+  off (which closes the connection) or the phone's Bluetooth first, and on again afterwards.
 - **On connecting** the phone writes what Gadgetbridge does first: a Ctrl-C on its own (the
   console drops what comes in the same write as one), then 0.3 s later
   `setTime(...);E.setTimeZone(...)`, and then it syncs.
@@ -282,7 +308,8 @@ process, or a configuration change), the main thread would hang, and every broad
 until Android killed the app for not answering. So `MainActivity` ends the process first.
 `WatchService` is `START_STICKY`, so Android starts it again in a new process, and the next launch
 gets a new process too. The manifest's `configChanges` lists every change the window takes as it is
-(size, font scale, locale, dark mode, ...), so those don't destroy the activity at all. Back on
+(size, font scale, locale, dark mode, ...), so those don't destroy the activity at all (the app
+looks at the font scale every couple of seconds, as at the theme). Back on
 Results doesn't either: winit reports every key as handled, so Android wouldn't act on it, and
 the app calls `moveTaskToBack` itself (`platform::leave`), which keeps the activity.
 
@@ -324,8 +351,9 @@ What was checked without them:
   `ANativeActivity_onCreate`, `android_main` and every `Java_com_cbishopvelti_beep_*` function.
 - The Java stubs compile (`javac` against Robolectric's `android-all` jar for Android 16), the
   headers `javac -h` writes from them match the Rust functions' names and parameters, and every
-  Android method and field the Rust calls (85 calls) was checked by name, signature and
-  static-ness against that jar's classes. Only `FileProvider.getUriForFile`, which is androidx's,
+  Android method and field the Rust calls (85 calls, and since then the direct link's search for
+  the watch, `getRemoteLeDevice`, `LocationManager` and `Configuration.fontScale`) was checked by
+  name, signature and static-ness against that jar's classes. Only `FileProvider.getUriForFile`, which is androidx's,
   wasn't (its documented signature is used).
 
 What to check first on a phone, in this order (`adb logcat -s beep` shows what the app does):
@@ -342,15 +370,23 @@ What to check first on a phone, in this order (`adb logcat -s beep` shows what t
 4. **With the app closed** (swiped away, not force-stopped, which stops Android delivering
    broadcasts to it until it's opened again): finish a test on the watch; its result and log are
    there when the app next opens. Delete a result on the watch: it goes from the phone.
-5. **Delete on the phone**: the result goes from the watch's Results menu at the next sync.
+5. **Delete on the phone**: the result goes from the watch's Results menu at the next sync. Delete
+   one with the watch out of range and the app then closed: it goes from the watch once the watch
+   is back and Gadgetbridge connects to it.
 6. **Watch page**: 15 m and GPS speed reach the watch's start screen and show on the phone once it
    answers; with a watch that has the Speeds setting, so do the speeds, and a test run on them
    shows them on its card. With one that hasn't, there's no Speeds choice.
 7. **Share TCX and Share CSV**: the share sheet opens and the file arrives whole in another app
    (Strava, Drive, a mail).
 8. **The direct link** (Settings): the permission requests on Android 12 and later (and location on
-   11 and earlier), the picker lists the watch once Gadgetbridge lets go of it, the connection comes
-   up with its notification, syncs, survives the app being swiped away and a reboot, and comes back
-   after the watch goes out of range.
-9. **`MainActivity` ending the process** when the activity is destroyed: Android starts
+   11 and earlier, where the picker says to turn Location on while it's off), the picker lists the
+   watch once Gadgetbridge lets go of it, the connection comes up with its notification, syncs,
+   survives the app being swiped away, a reboot and Bluetooth off and on (on Android 12 and earlier
+   too, where it looks for the watch first: `adb logcat -s beep` says "looking for the watch too",
+   then "found the watch"), and comes back after the watch goes out of range. With the switch off,
+   the App Loader on a computer can connect to the watch.
+9. **The font size**: with Settings > Display > Font size turned up, the text grows (up to 1.3
+   times), a result's levels table still fits, and changing it while the app is open follows within
+   a couple of seconds.
+10. **`MainActivity` ending the process** when the activity is destroyed: Android starts
    `WatchService` again, and the app opens again cleanly.

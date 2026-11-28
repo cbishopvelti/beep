@@ -355,11 +355,15 @@ impl Data {
     }
 
     /// Pending tombstones the watch's history doesn't list (`listed`)
-    /// become done: the watch has been seen without them. How many.
-    fn settle(&mut self, listed: &[String]) -> usize {
+    /// become done, of those in `asked` (all of them when `None`): the
+    /// watch has been seen without them. How many.
+    fn settle(&mut self, listed: &[String], asked: Option<&[String]>) -> usize {
         let mut settled = 0;
         for (f, t) in &mut self.tombstones {
-            if *t == Tombstone::Pending && !listed.contains(f) {
+            if *t == Tombstone::Pending
+                && !listed.contains(f)
+                && asked.is_none_or(|a| a.contains(f))
+            {
                 *t = Tombstone::Done;
                 settled += 1;
             }
@@ -573,6 +577,24 @@ impl Store {
     /// tombstones the watch no longer lists become done; and `hist` with
     /// the names listed becomes [`Store::watch_history`]. One write.
     pub fn merge_history(&self, entries: &[Entry], hist: Hist) -> io::Result<Merged> {
+        self.merge(entries, hist, None)
+    }
+
+    /// [`Store::merge_history`], but of the pending tombstones the watch no
+    /// longer lists only those in `asked` become done: the deletes the
+    /// watch was sent before this history (the sync engine's), not one
+    /// made on the phone since, which a history fetched before it can't
+    /// say anything about.
+    pub fn merge_history_asked(
+        &self,
+        entries: &[Entry],
+        hist: Hist,
+        asked: &[String],
+    ) -> io::Result<Merged> {
+        self.merge(entries, hist, Some(asked))
+    }
+
+    fn merge(&self, entries: &[Entry], hist: Hist, asked: Option<&[String]>) -> io::Result<Merged> {
         self.change(|data| {
             let mut merged = Merged::default();
             let mut listed: Vec<String> = Vec::new();
@@ -596,7 +618,7 @@ impl Store {
                     }
                 }
             }
-            merged.settled = data.settle(&listed);
+            merged.settled = data.settle(&listed, asked);
             data.hist = hist;
             data.listed = listed;
             merged
@@ -604,14 +626,15 @@ impl Store {
     }
 
     /// The watch's history is still the one last fetched whole (its `hist`
-    /// is the same): pending tombstones it doesn't list become done, as
-    /// [`Store::merge_history`] would make them. That's a delete on the
-    /// phone of a result the watch had already forgotten, which leaves
+    /// is the same): pending tombstones in `asked` (the deletes the watch
+    /// was sent) that it doesn't list become done, as
+    /// [`Store::merge_history_asked`] would make them. That's a delete on
+    /// the phone of a result the watch had already forgotten, which leaves
     /// its history as it was. How many.
-    pub fn settle_unlisted(&self) -> io::Result<usize> {
+    pub fn settle_unlisted(&self, asked: &[String]) -> io::Result<usize> {
         self.change(|data| {
             let listed = std::mem::take(&mut data.listed);
-            let settled = data.settle(&listed);
+            let settled = data.settle(&listed, Some(asked));
             data.listed = listed;
             settled
         })
