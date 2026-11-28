@@ -146,6 +146,12 @@ async function load(opts) {
       e.pins.set(s.pins);
       clock.t = s.t;
     },
+    /* A touchscreen event as the emulator page sends it: pts 1 while down,
+       then 0 with the gesture (5 tap, 3/4 swipe left/right, 2/1 up/down) */
+    touch: (x, y, pts, gesture) => {
+      e.Module.ccall("jsSendTouchEvent", "number", ["number", "number", "number", "number"], [x, y, pts, gesture || 0]);
+      emu.idle();
+    },
     getGfxContents: rgba => e.jsGetGfxContents(rgba),
     getScreenshot: () => {
       const rgba = new Uint8Array(e.GFX_WIDTH * e.GFX_HEIGHT * 4);

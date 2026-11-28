@@ -42,6 +42,16 @@ function press(h, ms) {
   h.tx(`(function(w,t){w({state:true,time:t});w({state:false,time:t+${(ms || 100) / 1000},lastTime:t})})(WATCHES[WATCHES.length-1],getTime())`);
 }
 
+/* Swipe across the touchscreen as a finger would (dir 1 right, -1 left) */
+function swipe(h, dir) {
+  const x0 = dir > 0 ? 40 : 136, x1 = dir > 0 ? 136 : 40;
+  h.emu.touch(x0, 100, 1);
+  h.emu.touch((x0 + x1) / 2, 100, 1);
+  h.emu.touch(x1, 100, 1);
+  h.emu.touch(x1, 100, 0);
+  h.emu.touch(x1, 100, 0, dir > 0 ? 4 : 3);
+}
+
 /* Tap the touchscreen */
 function tap(h) {
   h.tx(`Bangle.emit("touch",1,{x:88,y:100,type:0})`);
@@ -52,4 +62,4 @@ function readFile(h, name) {
   return h.eval(`(function(){var f=require("Storage").open(${JSON.stringify(name)},"r"),s="",l;while((l=f.read(2000))!==undefined)s+=l;return s})()`);
 }
 
-module.exports = { BT, timeAt, startAgo, spyBuzz, spyMenu, menuItems, spyDraw, captureButton, press, tap, readFile };
+module.exports = { BT, timeAt, startAgo, spyBuzz, spyMenu, menuItems, spyDraw, captureButton, press, tap, swipe, readFile };

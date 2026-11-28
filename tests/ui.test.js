@@ -2,7 +2,7 @@
    menus before and during a test, stop and cancel, the result screen.
    Run: node tests/run.js tests/ui.test.js -v */
 const { test, assert } = require("./harness");
-const { BT, timeAt, startAgo, spyMenu, menuItems, spyDraw, captureButton, press, tap } = require("./helpers");
+const { BT, timeAt, startAgo, spyMenu, menuItems, spyDraw, captureButton, press, tap, swipe } = require("./helpers");
 
 /* Open the app with the menu and button spies in place */
 async function open(h) {
@@ -49,6 +49,34 @@ test("a long hold doesn't open the menu (the firmware goes to the clock)", async
   await open(h);
   press(h, 1500);
   assert.eq(h.eval("view"), "ready");
+});
+
+/* Wait (up to 2.5 s) for a load() to bring the clock up */
+async function atClock(h) {
+  for (let i = 0; i < 50 && h.eval("global.__FILE__") === "beeptest.app.js"; i++) await h.wait(50);
+  return h.eval("global.__FILE__") !== "beeptest.app.js";
+}
+
+test("swipe right on the start screen goes to the clock, without starting", async h => {
+  await h.load("beeptest.app.js");
+  swipe(h, -1);
+  await h.wait(300);
+  assert.eq(h.eval("view"), "ready", "a left swipe does nothing");
+  swipe(h, 1);
+  assert(await atClock(h), "at the clock");
+  assert(!h.eval(`${BT}.active()`), "no test started");
+});
+
+test("swipe right during a test goes to the clock, and the test keeps running", async h => {
+  startAgo(h, 20, timeAt(h, 20, 3, 2));
+  await h.load("beeptest.app.js");
+  assert.eq(h.eval("view"), "run");
+  swipe(h, -1);
+  await h.wait(300);
+  assert.eq(h.eval("view"), "run", "a left swipe does nothing");
+  swipe(h, 1);
+  assert(await atClock(h), "at the clock");
+  assert(h.eval(`${BT}.active()`), "still running");
 });
 
 test("course and GPS choices are remembered and used", async h => {

@@ -43,12 +43,15 @@ and position in the log (and the TCX export). It is off by default: on 20 m / 15
 GPS speed lags and is only accurate to a few metres, it rarely gets a fix indoors, and it
 uses a lot of battery. The target speed for the level is always shown.
 
-### Buttons
+### Buttons and swipes
 
-| | Short press | Long press |
+| | Short press | Long press or swipe right |
 |---|---|---|
 | Before a test | Menu (start, course, GPS, results) | Back to the clock |
 | During a test | Menu (back to test, stop & save, cancel) | Back to the clock, **test keeps running** |
+
+Swipe right works on the app's own screens (start, countdown, running, result), not
+inside a menu.
 
 While a test is running in the background, cues carry on and a **widget** on the clock
 face shows the current `level.shuttle` and your heart rate. Tap the widget (or open the app

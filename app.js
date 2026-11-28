@@ -40,7 +40,8 @@ function heart(x, y, r) {
 
 
 // A custom screen: short button press opens the menu. A long press is left to
-// the firmware, which goes back to the clock.
+// the firmware, which goes back to the clock, and so does a swipe right. A test
+// keeps running at the clock either way (the widget taps back into it).
 function setScreen(name, opts) {
   opts = opts || {};
   E.showMenu();
@@ -56,6 +57,7 @@ function setScreen(name, opts) {
   Bangle.setUI({
     mode: "custom",
     touch: opts.touch,
+    swipe: function (lr) { if (lr > 0) load(); },
     remove: function () { clearWatch(w); clearTimers(); if (opts.remove) opts.remove(); }
   });
   g.reset().clearRect(Bangle.appRect);
